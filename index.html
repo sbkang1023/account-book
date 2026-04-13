@@ -3,9 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <title>성빈님의 가계부</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f4f4f4; }
+    </style>
 </head>
 <body>
-    <h1>📊 나의 지출 관리 페이지</h1>
-    <p>현재 홈페이지 구축 중입니다. 곧 엑셀 데이터가 연동될 예정입니다!</p>
+    <h1>📊 현대카드 지출 내역</h1>
+    <p>파일명: <b id="filename">hyundaicard_20260414.xls</b></p>
+    <div id="output">데이터를 분석 중입니다...</div>
+
+    <script>
+        // 이 부분을 나중에 새 파일명으로 바꾸시면 됩니다.
+        const targetFile = './hyundaicard_20260414.xls'; 
+        
+        fetch(targetFile)
+            .then(res => {
+                if(!res.ok) throw new Error("파일을 찾을 수 없습니다.");
+                return res.arrayBuffer();
+            })
+            .then(ab => {
+                const wb = XLSX.read(ab, {type: 'array'});
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const data = XLSX.utils.sheet_to_json(sheet);
+                
+                renderTable(data);
+            })
+            .catch(err => {
+                document.getElementById('output').innerHTML = 
+                    `<span style="color:red">${err.message} <br> (Git에 파일이 업로드되었는지, 파일명이 정확한지 확인해 주세요.)</span>`;
+            });
+
+        function renderTable(data) {
+            if(data.length === 0) return;
+            let html = '<table><thead><tr>';
+            // 헤더 생성
+            Object.keys(data[0]).forEach(key => html += `<th>${key}</th>`);
+            html += '</tr></thead><tbody>';
+            // 내용 생성
+            data.forEach(row => {
+                html += '<tr>';
+                Object.values(row).forEach(val => html += `<td>${val}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('output').innerHTML = html;
+        }
+    </script>
 </body>
-</html>
+</html>ㅍ
