@@ -2,56 +2,101 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 가계부</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>성빈님의 보안 가계부</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f4f4f4; }
+        :root { --primary-color: #0070f3; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; line-height: 1.6; color: #333; max-width: 1200px; margin: 0 auto; }
+        h1 { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; }
+        .upload-section { background: #f8f9fa; border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 10px; margin-bottom: 20px; }
+        .upload-section:hover { border-color: var(--primary-color); }
+        #excelInput { display: none; }
+        .custom-button { background: var(--primary-color); color: white; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; box-shadow: 0 2px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+        th { background-color: var(--primary-color); color: white; font-weight: 500; }
+        tr:nth-child(even) { background-color: #fcfcfc; }
+        tr:hover { background-color: #f1f7ff; }
+        #status { margin-top: 10px; font-weight: bold; color: #666; }
     </style>
 </head>
 <body>
-    <h1>📊 현대카드 지출 내역</h1>
-    <p>파일명: <b id="filename">hyundaicard_20260414.xls</b></p>
-    <div id="output">데이터를 분석 중입니다...</div>
+
+    <h1>📊 지출 내역 로컬 분석기</h1>
+    <p>보안을 위해 엑셀 파일은 서버에 전송되지 않으며, 사용자의 브라우저 내에서만 처리됩니다.</p>
+
+    <div class="upload-section">
+        <label for="excelInput" class="custom-button">현대카드 엑셀 파일 선택 (.xls, .xlsx)</label>
+        <input type="file" id="excelInput" accept=".xls, .xlsx" />
+        <div id="status">파일을 선택해 주세요.</div>
+    </div>
+
+    <div id="output">
+        </div>
 
     <script>
-        // 이 부분을 나중에 새 파일명으로 바꾸시면 됩니다.
-        const targetFile = './hyundaicard_20260414.xls'; 
-        
-        fetch(targetFile)
-            .then(res => {
-                if(!res.ok) throw new Error("파일을 찾을 수 없습니다.");
-                return res.arrayBuffer();
-            })
-            .then(ab => {
-                const wb = XLSX.read(ab, {type: 'array'});
-                const sheet = wb.Sheets[wb.SheetNames[0]];
-                const data = XLSX.utils.sheet_to_json(sheet);
-                
-                renderTable(data);
-            })
-            .catch(err => {
-                document.getElementById('output').innerHTML = 
-                    `<span style="color:red">${err.message} <br> (Git에 파일이 업로드되었는지, 파일명이 정확한지 확인해 주세요.)</span>`;
-            });
+        const input = document.getElementById('excelInput');
+        const status = document.getElementById('status');
+        const output = document.getElementById('output');
+
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.textContent = `분석 중: ${file.name}...`;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // 첫 번째 시트 가져오기
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    
+                    // 데이터를 JSON 배열로 변환
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    if (jsonData.length === 0) {
+                        status.textContent = "데이터가 비어있거나 읽을 수 없는 형식입니다.";
+                        return;
+                    }
+
+                    renderTable(jsonData);
+                    status.textContent = `성공적으로 ${jsonData.length}개의 내역을 불러왔습니다.`;
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = "오류 발생: 엑셀 파일을 읽는 중 문제가 발생했습니다.";
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
 
         function renderTable(data) {
-            if(data.length === 0) return;
             let html = '<table><thead><tr>';
-            // 헤더 생성
-            Object.keys(data[0]).forEach(key => html += `<th>${key}</th>`);
+            
+            // 헤더(컬럼명) 생성
+            const headers = Object.keys(data[0]);
+            headers.forEach(header => {
+                html += `<th>${header}</th>`;
+            });
             html += '</tr></thead><tbody>';
-            // 내용 생성
+
+            // 행(Row) 데이터 생성
             data.forEach(row => {
                 html += '<tr>';
-                Object.values(row).forEach(val => html += `<td>${val}</td>`);
+                headers.forEach(header => {
+                    html += `<td>${row[header] || ''}</td>`;
+                });
                 html += '</tr>';
             });
+            
             html += '</tbody></table>';
-            document.getElementById('output').innerHTML = html;
+            output.innerHTML = html;
         }
     </script>
 </body>
-</html>ㅍ
+</html>
