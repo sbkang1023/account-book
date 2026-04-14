@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 데이터 강제 스캔</title>
+    <title>성빈님의 가계부 - 데이터 완전 정복</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -12,24 +12,22 @@
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
-        input[type="file"], input[type="text"], input[type="number"] { padding: 8px; border-radius: 8px; border: 1px solid #ddd; outline: none; }
         #excelInput { display: none; }
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; padding: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 20px; background: #fff; }
         th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
-        th { background: var(--primary); color: white; position: sticky; top: 0; }
-        .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 12px; border: 1px solid #dde; }
-        select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; cursor: pointer; }
+        th { background: var(--primary); color: white; }
+        .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 12px; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (무제한 스캔)</h1>
+    <h1>📊 지출 분석 시스템 (그물망 스캔 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
-        <input type="text" id="saveMonth" placeholder="예: 2026-04">
+        <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
         <button onclick="saveCurrentMonth()" class="btn" style="background:#28a745">저장</button>
         <div id="archiveList" style="margin-top:10px; display:flex; gap:10px; justify-content:center;"></div>
     </div>
@@ -43,7 +41,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 엑셀 업로드</strong>
-        <p id="status">파일을 선택하면 1행부터 끝까지 강제로 읽습니다.</p>
+        <p id="status">병합된 셀까지 모두 뚫고 들어갑니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -52,7 +50,7 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div id="tableOutput" style="overflow-x:auto; max-height: 500px;"></div>
+    <div id="tableOutput"></div>
 </div>
 
 <script>
@@ -75,54 +73,39 @@ window.onload = function() {
                 const data = new Uint8Array(event.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
-                let col = { date: -1, store: -1, price: -1, inst: -1 };
+                // 엑셀을 가장 안전한 형태(Raw Object Array)로 변환
+                const rawRows = XLSX.utils.sheet_to_json(sheet, {raw: false, defval: ""});
+                
                 cardData = [];
+                rawRows.forEach(row => {
+                    // 키워드 기반으로 데이터 추출 (헤더 이름에 상관없이 값 존재 여부로 판단)
+                    const store = row['이용가맹점'] || row['가맹점명'] || "";
+                    const date = row['이용일'] || "";
+                    let priceRaw = row['이용금액'] || row['결제원금'] || row['금액'] || "0";
 
-                // 1. 헤더 위치부터 찾기
-                let startIdx = 0;
-                for (let i = 0; i < rows.length; i++) {
-                    const rowText = rows[i].join('');
-                    if (rowText.includes('이용일') && rowText.includes('이용가맹점')) {
-                        rows[i].forEach((c, idx) => {
-                            if (c === '이용일') col.date = idx;
-                            if (c === '이용가맹점') col.store = idx;
-                            if (c === '이용금액' || c === '결제원금') col.price = idx;
-                            if (c === '할부/회차') col.inst = idx;
-                        });
-                        startIdx = i + 1;
-                        break;
-                    }
-                }
-
-                // 2. 데이터 강제 수집 (에러 무시하고 끝까지)
-                for (let i = startIdx; i < rows.length; i++) {
-                    try {
-                        const r = rows[i];
-                        const store = String(r[col.store] || '').trim();
-                        // 진짜 데이터만 골라내기 (합계 행은 제외하되 루프는 유지)
-                        if (!store || store === "" || store.includes('합계') || store.includes('상세내역')) continue;
-
-                        let p = r[col.price];
-                        let price = (typeof p === 'string') ? parseInt(p.replace(/[^0-9]/g, '')) || 0 : parseInt(p) || 0;
-
+                    if (store && !String(store).includes('합계') && !String(store).includes('상세내역')) {
+                        let price = parseInt(String(priceRaw).replace(/[^0-9]/g, '')) || 0;
                         if (price > 0) {
                             cardData.push({
-                                date: String(r[col.date] || ''),
+                                date: date,
                                 store: store,
                                 price: price,
-                                inst: String(r[col.inst] || '-'),
+                                inst: row['할부/회차'] || row['할부'] || "-",
                                 category: '기타/미분류'
                             });
                         }
-                    } catch (err) { continue; }
-                }
+                    }
+                });
 
-                updateDashboard();
-                renderTable();
-                document.getElementById('status').textContent = `✅ ${cardData.length}건 로드 완료!`;
-            } catch (err) { alert("파일 처리 실패"); }
+                if (cardData.length > 0) {
+                    updateDashboard();
+                    renderTable();
+                    document.getElementById('status').textContent = `✅ ${cardData.length}건을 성공적으로 낚아챘습니다!`;
+                } else {
+                    alert("데이터를 찾을 수 없습니다. 엑셀 형식을 확인해주세요.");
+                }
+            } catch (err) { alert("파일 처리 실패: " + err.message); }
         };
         reader.readAsArrayBuffer(file);
     };
@@ -135,7 +118,8 @@ window.onload = function() {
         const data = labels.map(l => sumMap[l]);
         if(pieChart) pieChart.destroy();
         if(barChart) barChart.destroy();
-        pieChart = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] }, options: { maintainAspectRatio: false } });
+        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'];
+        pieChart = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors }] }, options: { maintainAspectRatio: false } });
         barChart = new Chart(document.getElementById('barChart'), { type: 'bar', data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] }, options: { indexAxis: 'y', maintainAspectRatio: false } });
     }
 
