@@ -3,26 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>성빈님의 통합 가계부 시스템</title>
+    <title>성빈님의 데이터 가계부 - 최종 디버깅 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f0f2f5; }
         body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1100px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1, h3 { color: var(--primary); text-align: center; }
-        .input-group { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap; }
-        input { padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        
-        /* 업로드 영역: label로 감싸서 클릭 신뢰도 향상 */
+        h1 { color: var(--primary); text-align: center; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
-
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-        @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
-        .chart-container { background: #fff; padding: 15px; border: 1px solid #eee; border-radius: 12px; height: 350px; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; }
+        .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; }
+        #debug-log { background: #333; color: #0f0; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; background: white; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; }
     </style>
@@ -30,62 +24,57 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 대시보드</h1>
+    <h1>📊 지출 분석 시스템 (최종)</h1>
     
-    <div class="section">
-        <h3>🏠 고정 지출 등록</h3>
-        <div class="input-group">
-            <input type="text" id="fixedName" placeholder="항목 (예: 보험료)">
-            <input type="number" id="fixedAmount" placeholder="금액 (원)">
-            <button class="btn" id="addBtn">추가</button>
-        </div>
-        <div id="fixedList" style="text-align:center; margin-bottom:20px;"></div>
-    </div>
-
-    <label class="upload-area" for="excelInput" id="dropZone">
-        <strong style="font-size: 1.1em;">이곳을 클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">파일을 선택하면 카테고리별로 자동 분류됩니다.</p>
+    <label class="upload-area" for="excelInput">
+        <strong>이곳을 클릭하여 엑셀 업로드</strong>
+        <p id="status" style="margin-top:10px; color:blue;">파일을 선택하면 아래 로그에 진행 상황이 뜹니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
+
+    <div id="debug-log">시스템 준비 완료. 파일을 업로드해 주세요.</div>
 
     <div class="dashboard">
         <div class="chart-container"><canvas id="pieChart"></canvas></div>
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div class="table-wrap" id="tableOutput"></div>
+    <div id="tableOutput"></div>
 </div>
 
 <script>
 window.onload = function() {
-    let fixedCosts = JSON.parse(localStorage.getItem('fixedCosts')) || [];
-    let cardData = [];
+    const log = document.getElementById('debug-log');
+    const status = document.getElementById('status');
     let pieChart, barChart;
 
+    function addLog(msg) {
+        const time = new Date().toLocaleTimeString();
+        log.innerHTML += `<br>[${time}] ${msg}`;
+        log.scrollTop = log.scrollHeight;
+    }
+
     const categoryRules = {
-        '교통/주유': ['주유', '충전', '주차', '하이패스', '철도', '택시', 'IC', '주유소'],
-        '식비': ['식당', '푸드', '커피', '카페', '스타벅스', '음식점', '치킨', '피자', '베이커리'],
-        '쇼핑': ['네이버페이', '쿠팡', '마트', '백화점', '편의점', '올리브영', '지마켓', '옥션'],
+        '교통/주유': ['주유', '충전', '주차', '하이패스', '철도', '택시', 'IC'],
+        '식비': ['식당', '푸드', '커피', '카페', '스타벅스', '음식점', '치킨', '피자', '한식', '일식'],
+        '쇼핑': ['네이버페이', '쿠팡', '마트', '백화점', '편의점', '올리브영', '다이소'],
         '주거/통신': ['통신', 'SKT', 'KT', 'LG', '관리비', '전기', '수도'],
-        '의료/보험': ['병원', '약국', '의원', '치과', '보험', '의료']
+        '의료/보험': ['병원', '약국', '의원', '치과', '보험']
     };
 
-    renderFixedCosts();
-    updateAll();
+    document.getElementById('excelInput').onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        addLog(`파일 감지됨: ${file.name} (${file.size} bytes)`);
+        const reader = new FileReader();
 
-    // 고정 지출 추가 이벤트
-    document.getElementById('addBtn').onclick = function() {
-        const name = document.getElementById('fixedName').value;
-        const amount = parseInt(document.getElementById('fixedAmount').value);
-        if (name && amount) {
-            fixedCosts.push({ name, amount });
-            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-            renderFixedCosts();
-            updateAll();
-            document.getElementById('fixedName').value = '';
-            document.getElementById('fixedAmount').value = '';
-        }
-    };
-
-    // 엑셀 파일 선택 시 실행되는 로직
-    document.getElementById('excelInput').on
+        reader.onload = function(event) {
+            try {
+                addLog("파일 읽기 시작...");
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                
+                addLog("엑셀 데이터 파싱 중...");
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, {header
