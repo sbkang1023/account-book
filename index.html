@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 무결성 합본</title>
+    <title>성빈님의 스마트 가계부 - 데이터 무결성 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -11,34 +11,32 @@
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        .btn-save { background: #28a745; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
-        input[type="file"], input[type="text"], input[type="number"] { padding: 8px; border-radius: 8px; border: 1px solid #ddd; outline: none; }
-        #excelInput { display: none; }
+        input[type="file"] { display: none; }
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; padding: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; background: #fff; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; position: sticky; top: 0; }
         .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 13px; border: 1px solid #dde; }
-        select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; cursor: pointer; }
+        select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 스마트 지출 분석 통합 시스템</h1>
+    <h1>📊 지출 분석 시스템 (에러 자동 복구 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
-        <input type="text" id="saveMonth" placeholder="예: 2026-04">
-        <button onclick="saveCurrentMonth()" class="btn btn-save">현재 달 저장하기</button>
+        <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
+        <button onclick="saveCurrentMonth()" class="btn" style="background:#28a745">현재 상태 저장</button>
         <div id="archiveList" style="margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
     </div>
 
     <div class="section" style="border-top:1px solid #eee; padding-top:20px;">
-        <h3>🏠 고정 지출 & 공통 관리</h3>
+        <h3>🏠 고정 지출 & 데이터 관리</h3>
         <div style="display:flex; gap:10px; justify-content:center; margin-bottom:15px;">
-            <input type="text" id="fixedName" placeholder="보험료, 통신비 등">
+            <input type="text" id="fixedName" placeholder="항목명">
             <input type="number" id="fixedAmount" placeholder="금액">
             <button onclick="addFixedCost()" class="btn">추가</button>
         </div>
@@ -47,7 +45,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>이곳을 클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">파일을 선택하면 분석이 시작됩니다.</p>
+        <p id="status" style="margin-top:10px; color:#666;">데이터를 끝까지 정밀 스캔합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -72,7 +70,6 @@ window.onload = function() {
     renderArchiveList();
     updateDashboard();
 
-    // 엑셀 분석 엔진
     document.getElementById('excelInput').onchange = function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -88,35 +85,46 @@ window.onload = function() {
                 cardData = [];
 
                 for (let i = 0; i < rows.length; i++) {
-                    const r = rows[i];
-                    if (!foundHeader) {
-                        const rowStr = r.join('');
-                        if (rowStr.includes('이용일')) {
-                            r.forEach((c, idx) => {
-                                if (c === '이용일') col.date = idx;
-                                if (c === '이용가맹점') col.store = idx;
-                                if (c === '이용금액' || c === '결제원금') col.price = idx;
-                                if (c === '할부/회차') col.inst = idx;
-                            });
-                            foundHeader = true;
+                    try { // 개별 행 에러 방어
+                        const r = rows[i];
+                        if (!foundHeader) {
+                            const rowStr = r.join('');
+                            if (rowStr.includes('이용일')) {
+                                r.forEach((c, idx) => {
+                                    if (c === '이용일') col.date = idx;
+                                    if (c === '이용가맹점') col.store = idx;
+                                    if (c === '이용금액' || c === '결제원금') col.price = idx;
+                                    if (c === '할부/회차') col.inst = idx;
+                                });
+                                foundHeader = true;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
 
-                    const store = String(r[col.store] || '').trim();
-                    if (!store || store.includes('합계') || store.includes('내역') || store === 'undefined') continue;
+                        const store = String(r[col.store] || '').trim();
+                        // 필터링: 합계나 공백 제외
+                        if (!store || store === "" || store.includes('합계') || store.includes('상세내역')) continue;
 
-                    let p = r[col.price];
-                    let price = (typeof p === 'string') ? parseInt(p.replace(/[^0-9]/g, '')) || 0 : parseInt(p) || 0;
+                        let p = r[col.price];
+                        let price = 0;
+                        if (typeof p === 'string') {
+                            price = parseInt(p.replace(/[^0-9]/g, '')) || 0;
+                        } else {
+                            price = parseInt(p) || 0;
+                        }
 
-                    if (price > 0) {
-                        cardData.push({
-                            date: String(r[col.date] || ''),
-                            store: store,
-                            price: price,
-                            inst: String(r[col.inst] || '-'),
-                            category: '기타/미분류'
-                        });
+                        if (price > 0) {
+                            cardData.push({
+                                date: String(r[col.date] || '').trim(),
+                                store: store,
+                                price: price,
+                                inst: String(r[col.inst] || '-').trim(),
+                                category: '기타/미분류'
+                            });
+                        }
+                    } catch (e) {
+                        console.error("행 처리 중 오류 스킵:", i);
+                        continue; // 에러 나도 다음 줄로 무조건 진행
                     }
                 }
                 updateDashboard();
@@ -199,11 +207,11 @@ window.onload = function() {
 
     window.saveCurrentMonth = function() {
         const month = document.getElementById('saveMonth').value.trim();
-        if (!month || cardData.length === 0) return alert("저장할 이름(예: 2026-04)을 입력하고 데이터를 업로드해 주세요.");
+        if (!month || cardData.length === 0) return alert("저장할 이름을 입력하고 엑셀을 업로드해 주세요.");
         archives[month] = cardData;
         localStorage.setItem('monthlyArchives', JSON.stringify(archives));
         renderArchiveList();
-        alert(month + " 데이터가 브라우저에 저장되었습니다!");
+        alert(month + " 저장 완료!");
     };
 
     function renderArchiveList() {
@@ -214,12 +222,10 @@ window.onload = function() {
     }
 
     window.loadMonth = function(m) {
-        if (confirm(`${m} 데이터를 불러오시겠습니까?`)) {
-            cardData = archives[m];
-            updateDashboard();
-            renderTable();
-            document.getElementById('saveMonth').value = m;
-        }
+        cardData = archives[m];
+        updateDashboard();
+        renderTable();
+        document.getElementById('saveMonth').value = m;
     };
 };
 </script>
