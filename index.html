@@ -2,47 +2,33 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>성빈님의 스마트 가계부 - 최종 통합본</title>
+    <title>성빈님의 스마트 가계부 - 카테고리 완결판</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f0f2f5; }
-        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1100px; margin: 0 auto; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1200px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
-        .input-group { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap; }
-        input { padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
-        .dashboard { display: grid; grid-template-columns: 1fr 1.2fr; gap: 20px; margin-bottom: 20px; }
+        .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 380px; padding: 10px; }
-        .table-wrap { overflow-x: auto; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
-        th { background: var(--primary); color: white; }
+        th { background: var(--primary); color: white; position: sticky; top: 0; }
+        .cat-tag { background: #e1efff; color: #0070f3; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 스마트 지출 분류 대시보드</h1>
+    <h1>📊 지출 분석 대시보드</h1>
     
-    <div class="section">
-        <h3>🏠 고정 지출 등록</h3>
-        <div class="input-group">
-            <input type="text" id="fixedName" placeholder="항목 (예: 보험료)">
-            <input type="number" id="fixedAmount" placeholder="금액 (원)">
-            <button class="btn" id="addBtn">추가</button>
-        </div>
-        <div id="fixedList" style="text-align:center; margin-bottom:20px;"></div>
-    </div>
-
     <label class="upload-area" for="excelInput">
-        <strong>이곳을 클릭하여 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">자동 분류 시스템이 적용되었습니다.</p>
+        <strong>여기를 클릭하여 현대카드 엑셀 업로드</strong>
+        <p id="status" style="margin-top:10px; color:#666;">카테고리 분류 로그가 하단 테이블에 표시됩니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -51,37 +37,21 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div class="table-wrap" id="tableOutput"></div>
+    <div id="tableOutput" style="overflow-x:auto"></div>
 </div>
 
 <script>
 window.onload = function() {
-    let fixedCosts = JSON.parse(localStorage.getItem('fixedCosts')) || [];
     let cardData = [];
     let pieChart, barChart;
 
+    // 성빈님 내역 맞춤 키워드 (이미지 기반)
     const categoryRules = {
-        '차량/주유': ['주유', '충전', '주차', 'IC', '공영', '세차', '하이패스'],
-        '식비/생활': ['식당', '푸드', '커피', '카페', '베이커리', '김밥', '치킨', '밥', '스타벅스', '요리', '고기'],
-        '쇼핑/마트': ['네이버페이', '쿠팡', '마트', '편의점', 'GS25', 'CU', '올리브영', '다이소', '배달의민족', 'KCP', 'Apple'],
-        '의료/건강': ['병원', '약국', '치과', '의원', '내과', '의료', '보험', '플란트'],
-        '통신/주거': ['핸드폰', '휴대폰', '통신', 'SKT', 'KT', 'LG', '관리비', '전기', '도시가스']
-    };
-
-    renderFixedCosts();
-    updateDashboard();
-
-    document.getElementById('addBtn').onclick = function() {
-        const name = document.getElementById('fixedName').value;
-        const amount = parseInt(document.getElementById('fixedAmount').value);
-        if (name && amount) {
-            fixedCosts.push({ name, amount });
-            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-            renderFixedCosts();
-            updateDashboard();
-            document.getElementById('fixedName').value = '';
-            document.getElementById('fixedAmount').value = '';
-        }
+        '차량/주유': ['주유', '충전', '주차', 'IC', '공영', '세차', '하이패스', '모빌리티'],
+        '식비/카페': ['식당', '푸드', '커피', '카페', '베이커리', '김밥', '치킨', '밥', '스타벅스', '요리', '도시락', '음식점'],
+        '쇼핑/마트': ['네이버페이', '쿠팡', '마트', '편의점', 'GS25', 'CU', '올리브영', '다이소', '배달의민족', 'KCP', 'Apple', '결제'],
+        '의료/보험': ['병원', '약국', '치과', '의원', '내과', '의료', '보험', '플란트'],
+        '통신/주거': ['핸드폰', '휴대폰', '통신', 'SKT', 'KT', 'LG', '관리비', '전기', '가스']
     };
 
     document.getElementById('excelInput').onchange = function(e) {
@@ -89,45 +59,31 @@ window.onload = function() {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = function(event) {
-            try {
-                const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
-                
-                let headerIdx = -1;
-                for(let i=0; i<rows.length; i++) {
-                    if(rows[i].join('').includes('이용일')) { headerIdx = i; break; }
-                }
-                if(headerIdx === -1) { alert("'이용일' 헤더를 찾지 못했습니다."); return; }
-
-                cardData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
-                updateDashboard();
-                renderTable(cardData);
-                document.getElementById('status').textContent = `✅ ${cardData.length}건 분석 완료`;
-            } catch (err) { 
-                alert("오류: " + err.message); 
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
+            
+            let headerIdx = -1;
+            for(let i=0; i<rows.length; i++) {
+                if(rows[i].join('').includes('이용일')) { headerIdx = i; break; }
             }
+            cardData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
+            updateDashboard();
         };
         reader.readAsArrayBuffer(file);
     };
 
     function updateDashboard() {
         const sumMap = {};
-        
-        fixedCosts.forEach(item => {
-            let category = '기타/미분류';
-            for (const [cat, keywords] of Object.entries(categoryRules)) {
-                if (keywords.some(k => item.name.includes(k))) { category = cat; break; }
-            }
-            if (category === '기타/미분류') category = item.name; 
-            sumMap[category] = (sumMap[category] || 0) + item.amount;
-        });
-        
+        const processedData = [];
+
         cardData.forEach(row => {
-            let storeRaw = row['이용가맹점'] || row['가맹점명'] || '미분류';
-            let storeClean = storeRaw.replace(/[0-9,]/g, '').trim(); 
+            // 1. 가맹점명 정제 (숫자, 콤마, 특수기호 제거)
+            let storeRaw = String(row['이용가맹점'] || row['가맹점명'] || '미분류');
+            let storeClean = storeRaw.replace(/[0-9,\.]/g, '').trim(); 
             
+            // 2. 금액 정제
             let priceRaw = row['이용금액'] || row['결제원금'] || 0;
             let price = (typeof priceRaw === 'string') ? parseInt(priceRaw.replace(/[^0-9]/g, '')) || 0 : parseInt(priceRaw) || 0;
             
@@ -140,56 +96,47 @@ window.onload = function() {
                     }
                 }
                 sumMap[category] = (sumMap[category] || 0) + price;
+                
+                // 테이블용 데이터 저장
+                row['분류결과'] = category;
+                processedData.push(row);
             }
         });
 
-        const sortedLabels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
-        const sortedValues = sortedLabels.map(l => sumMap[l]);
-        drawCharts(sortedLabels, sortedValues);
+        const labels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
+        const values = labels.map(l => sumMap[l]);
+        
+        drawCharts(labels, values);
+        renderTable(processedData);
     }
 
     function drawCharts(labels, data) {
         if(pieChart) pieChart.destroy();
         if(barChart) barChart.destroy();
-        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#ff9f40', '#5a5c69'];
+        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#ff9f40'];
         
-        const pieCtx = document.getElementById('pieChart').getContext('2d');
-        pieChart = new Chart(pieCtx, {
+        pieChart = new Chart(document.getElementById('pieChart'), {
             type: 'doughnut',
-            data: { labels: labels, datasets: [{ data: data, backgroundColor: colors }] },
-            options: { maintainAspectRatio: false, plugins: { title: { display: true, text: '지출 비중' } } }
+            data: { labels, datasets: [{ data, backgroundColor: colors }] },
+            options: { maintainAspectRatio: false }
         });
 
-        const barCtx = document.getElementById('barChart').getContext('2d');
-        barChart = new Chart(barCtx, {
+        barChart = new Chart(document.getElementById('barChart'), {
             type: 'bar',
-            data: { labels: labels, datasets: [{ label: '금액(원)', data: data, backgroundColor: '#0070f3' }] },
-            options: { indexAxis: 'y', maintainAspectRatio: false, scales: { x: { ticks: { callback: v => v.toLocaleString() } } } }
+            data: { labels, datasets: [{ label:'금액(원)', data, backgroundColor: '#0070f3' }] },
+            options: { indexAxis: 'y', maintainAspectRatio: false }
         });
     }
-
-    function renderFixedCosts() {
-        const div = document.getElementById('fixedList');
-        div.innerHTML = fixedCosts.map((item, i) => `
-            <span style="background:#eef; padding:5px 10px; border-radius:15px; margin:5px; display:inline-block; font-size:13px;">
-                ${item.name}: ${item.amount.toLocaleString()}원 
-                <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b>
-            </span>
-        `).join('') || "<p style='color:#999'>고정 지출을 등록해 보세요.</p>";
-    }
-
-    window.removeFixed = function(i) {
-        fixedCosts.splice(i, 1);
-        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-        renderFixedCosts();
-        updateDashboard();
-    };
 
     function renderTable(data) {
         if(!data.length) return;
         const keys = Object.keys(data[0]);
-        let html = '<table><tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
-        data.forEach(row => html += '<tr>' + keys.map(k => `<td>${row[k] || ''}</td>`).join('') + '</tr>');
+        // '분류결과'를 맨 앞으로 보낸 테이블 헤더
+        let html = '<table><tr><th>분류결과</th>' + keys.filter(k => k !== '분류결과').map(k => `<th>${k}</th>`).join('') + '</tr>';
+        data.forEach(row => {
+            html += `<tr><td><span class="cat-tag">${row['분류결과']}</span></td>`;
+            html += keys.filter(k => k !== '분류결과').map(k => `<td>${row[k] || ''}</td>`).join('') + '</tr>';
+        });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 };
