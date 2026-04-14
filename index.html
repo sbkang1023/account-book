@@ -2,31 +2,46 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 데이터 가계부 - 리커버리 모드</title>
+    <title>성빈님의 스마트 가계부 - 수동 편집 모드</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --primary: #0070f3; --bg: #f0f2f5; }
-        body { font-family: sans-serif; padding: 20px; background: var(--bg); max-width: 1200px; margin: 0 auto; }
+        :root { --primary: #0070f3; --bg: #f4f7f6; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1200px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1 { color: var(--primary); text-align: center; }
+        h1, h3 { color: var(--primary); text-align: center; }
+        .input-group { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap; }
+        input { padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 380px; padding: 10px; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 20px; background: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; background: #fff; }
         th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
-        th { background: var(--primary); color: white; }
+        th { background: var(--primary); color: white; position: sticky; top: 0; }
+        select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; }
+        .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 13px; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (복구됨)</h1>
+    <h1>📊 지출 분석 & 수동 편집 대시보드</h1>
     
+    <div class="section">
+        <h3>🏠 고정 지출 설정</h3>
+        <div class="input-group">
+            <input type="text" id="fixedName" placeholder="항목명">
+            <input type="number" id="fixedAmount" placeholder="금액">
+            <button class="btn" id="addBtn">고정지출 추가</button>
+        </div>
+        <div id="fixedList" style="text-align:center; margin-bottom:20px;"></div>
+    </div>
+
     <label class="upload-area" for="excelInput">
-        <strong>여기를 클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">데이터가 나오지 않으면 '이용일' 글자가 포함된 엑셀인지 확인해주세요.</p>
+        <strong>엑셀 업로드 (현대카드 등)</strong>
+        <p id="status" style="margin-top:10px; color:#666;">업로드 후 아래 표에서 직접 분류를 수정할 수 있습니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -35,20 +50,36 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div id="tableOutput"></div>
+    <div id="tableOutput" style="overflow-x:auto; max-height: 500px;"></div>
 </div>
 
 <script>
 window.onload = function() {
+    let fixedCosts = JSON.parse(localStorage.getItem('fixedCosts')) || [];
+    let cardData = [];
     let pieChart, barChart;
 
-    // 분류 키워드 (가장 흔한 것들만 우선 배치)
+    const categories = ['식비/카페', '차량/주유', '쇼핑/마트', '의료/건강', '통신/주거', '기타/미분류'];
     const categoryRules = {
         '차량/주유': ['주유', '충전', '주차', 'IC', '하이패스'],
-        '식비/카페': ['식당', '푸드', '커피', '카페', '김밥', '음식점', '스타벅스'],
-        '쇼핑/마트': ['네이버', '쿠팡', '마트', '편의점', '올리브영', '배달', 'KCP', 'Apple'],
-        '의료/보험': ['병원', '약국', '치과', '의원', '보험'],
-        '통신/주거': ['핸드폰', '휴대폰', '통신', '관리비', '전기']
+        '식비/카페': ['식당', '푸드', '커피', '카페', '김밥', '스타벅스'],
+        '쇼핑/마트': ['네이버', '쿠팡', '마트', '편의점', '배달', 'KCP']
+    };
+
+    renderFixedCosts();
+    updateDashboard();
+
+    document.getElementById('addBtn').onclick = function() {
+        const name = document.getElementById('fixedName').value;
+        const amount = parseInt(document.getElementById('fixedAmount').value);
+        if (name && amount) {
+            fixedCosts.push({ name, amount });
+            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+            renderFixedCosts();
+            updateDashboard();
+            document.getElementById('fixedName').value = '';
+            document.getElementById('fixedAmount').value = '';
+        }
     };
 
     document.getElementById('excelInput').onchange = function(e) {
@@ -61,61 +92,55 @@ window.onload = function() {
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet, {header: 1});
             
-            // 1. 헤더 위치 찾기 (무조건 한 줄씩 검사)
             let headerIdx = -1;
             for(let i=0; i<rows.length; i++) {
-                const line = rows[i].join('');
-                if(line.includes('이용일')) { headerIdx = i; break; }
+                if(rows[i].join('').includes('이용일')) { headerIdx = i; break; }
             }
-
-            if(headerIdx === -1) {
-                alert("엑셀에서 '이용일' 컬럼을 찾지 못했습니다.");
-                return;
-            }
-
-            // 2. 데이터 가공
-            const cardData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
-            const sumMap = {};
-
-            cardData.forEach(row => {
-                const store = String(row['이용가맹점'] || row['가맹점명'] || '');
-                let priceRaw = row['이용금액'] || row['결제원금'] || 0;
-                let price = (typeof priceRaw === 'string') ? parseInt(priceRaw.replace(/[^0-9]/g, '')) || 0 : parseInt(priceRaw) || 0;
-
-                if (price > 0) {
-                    let category = '기타';
-                    for (const [cat, keywords] of Object.entries(categoryRules)) {
-                        if (keywords.some(k => store.includes(k))) {
-                            category = cat;
-                            break;
-                        }
-                    }
-                    sumMap[category] = (sumMap[category] || 0) + price;
-                    row['__분류'] = category; // 테이블 표시용
-                }
-            });
-
-            // 3. 시각화
-            const labels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
-            const values = labels.map(l => sumMap[l]);
             
-            updateCharts(labels, values);
-            renderTable(cardData);
-            document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
+            if(headerIdx !== -1) {
+                const rawData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
+                cardData = rawData.map(row => {
+                    const store = String(row['이용가맹점'] || row['가맹점명'] || '');
+                    let priceRaw = row['이용금액'] || row['결제원금'] || 0;
+                    let price = (typeof priceRaw === 'string') ? parseInt(priceRaw.replace(/[^0-9]/g, '')) || 0 : parseInt(priceRaw) || 0;
+                    
+                    // 초기 자동 분류 로직
+                    let category = '기타/미분류';
+                    for (const [cat, keywords] of Object.entries(categoryRules)) {
+                        if (keywords.some(k => store.includes(k))) { category = cat; break; }
+                    }
+                    return { ...row, __category: category, __price: price, __store: store };
+                });
+                updateDashboard();
+                renderTable();
+            }
         };
         reader.readAsArrayBuffer(file);
     };
 
-    function updateCharts(labels, data) {
+    function updateDashboard() {
+        const sumMap = {};
+        // 1. 고정 지출 합산
+        fixedCosts.forEach(item => {
+            sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount;
+        });
+        // 2. 카드 지출 합산 (수동 선택된 카테고리 기준)
+        cardData.forEach(item => {
+            if (item.__price > 0) {
+                sumMap[item.__category] = (sumMap[item.__category] || 0) + item.__price;
+            }
+        });
+
+        const labels = Object.keys(sumMap);
+        const data = labels.map(l => sumMap[l]);
+        
         if(pieChart) pieChart.destroy();
         if(barChart) barChart.destroy();
-        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'];
         
         pieChart = new Chart(document.getElementById('pieChart'), {
             type: 'doughnut',
-            data: { labels, datasets: [{ data, backgroundColor: colors }] }
+            data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] }
         });
-
         barChart = new Chart(document.getElementById('barChart'), {
             type: 'bar',
             data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] },
@@ -123,15 +148,42 @@ window.onload = function() {
         });
     }
 
-    function renderTable(data) {
-        if(!data.length) return;
-        const keys = Object.keys(data[0]);
-        let html = '<table><tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
-        data.forEach(row => {
-            html += '<tr>' + keys.map(k => `<td>${row[k] || ''}</td>`).join('') + '</tr>';
+    function renderTable() {
+        if(!cardData.length) return;
+        let html = '<table><tr><th>카테고리(수정가능)</th><th>가맹점</th><th>금액</th></tr>';
+        cardData.forEach((row, idx) => {
+            html += `<tr>
+                <td>
+                    <select onchange="updateRowCategory(${idx}, this.value)">
+                        ${categories.map(cat => `<option value="${cat}" ${row.__category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                    </select>
+                </td>
+                <td>${row.__store}</td>
+                <td>${row.__price.toLocaleString()}원</td>
+            </tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
+
+    window.updateRowCategory = function(idx, newCat) {
+        cardData[idx].__category = newCat;
+        updateDashboard(); // 카테고리 바꾸자마자 그래프 갱신
+    };
+
+    function renderFixedCosts() {
+        const div = document.getElementById('fixedList');
+        div.innerHTML = fixedCosts.map((item, i) => `
+            <span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 
+            <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b></span>
+        `).join('') || "<p>고정 지출을 등록하세요.</p>";
+    }
+
+    window.removeFixed = function(i) {
+        fixedCosts.splice(i, 1);
+        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+        renderFixedCosts();
+        updateDashboard();
+    };
 };
 </script>
 </body>
