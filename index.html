@@ -108,4 +108,90 @@ window.onload = function() {
                     } else {
                         // 만약 가맹점 칸에 숫자가 없으면 기존의 이용금액 컬럼 확인
                         let altPrice = row['이용금액'] || row['결제원금'] || 0;
-                        extractedPrice = (typeof altPrice === 'string') ? parseInt(altPrice.replace(/[^0-9]/
+                        extractedPrice = (typeof altPrice === 'string') ? parseInt(altPrice.replace(/[^0-9]/g, '')) || 0 : parseInt(altPrice);
+                    }
+                    
+                    return { 
+                        ...row, 
+                        __category: '기타/미분류', 
+                        __price: extractedPrice, 
+                        __store: cleanStore || rawStore
+                    };
+                });
+                updateDashboard();
+                renderTable();
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    function updateDashboard() {
+        const sumMap = {};
+        fixedCosts.forEach(item => {
+            sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount;
+        });
+        cardData.forEach(item => {
+            if (item.__price > 0) {
+                sumMap[item.__category] = (sumMap[item.__category] || 0) + item.__price;
+            }
+        });
+
+        const labels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
+        const data = labels.map(l => sumMap[l]);
+        
+        if(pieChart) pieChart.destroy();
+        if(barChart) barChart.destroy();
+        
+        pieChart = new Chart(document.getElementById('pieChart'), {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] },
+            options: { maintainAspectRatio: false }
+        });
+
+        barChart = new Chart(document.getElementById('barChart'), {
+            type: 'bar',
+            data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] },
+            options: { indexAxis: 'y', maintainAspectRatio: false }
+        });
+    }
+
+    function renderTable() {
+        if(!cardData.length) return;
+        let html = '<table><tr><th>카테고리 선택</th><th>가맹점</th><th>금액</th></tr>';
+        cardData.forEach((row, idx) => {
+            html += `<tr>
+                <td>
+                    <select onchange="updateRowCategory(${idx}, this.value)">
+                        ${categories.map(cat => `<option value="${cat}" ${row.__category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                    </select>
+                </td>
+                <td>${row.__store}</td>
+                <td>${row.__price.toLocaleString()}원</td>
+            </tr>`;
+        });
+        document.getElementById('tableOutput').innerHTML = html + '</table>';
+    }
+
+    window.updateRowCategory = function(idx, newCat) {
+        cardData[idx].__category = newCat;
+        updateDashboard();
+    };
+
+    function renderFixedCosts() {
+        const div = document.getElementById('fixedList');
+        div.innerHTML = fixedCosts.map((item, i) => `
+            <span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 
+            <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b></span>
+        `).join('') || "<p>고정 지출을 등록하세요.</p>";
+    }
+
+    window.removeFixed = function(i) {
+        fixedCosts.splice(i, 1);
+        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+        renderFixedCosts();
+        updateDashboard();
+    };
+};
+</script>
+</body>
+</html>
