@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 무결성 최종본</title>
+    <title>성빈님의 스마트 가계부 - 데이터 완주 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -25,7 +25,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 스마트 지출 분석 통합 대시보드</h1>
+    <h1>📊 지출 분석 시스템 (데이터 완주 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">데이터 유실 방지 로직이 적용되었습니다.</p>
+        <p id="status">데이터 유실 방지를 위해 끝까지 정밀 스캔합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -68,20 +68,20 @@ window.onload = function() {
 
     document.getElementById('excelInput').onchange = function(e) {
         const file = e.target.files[0];
-        if (!file) return;
         const reader = new FileReader();
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                // raw: false 설정을 통해 모든 데이터를 텍스트로 안전하게 읽음
+                // raw: false 설정을 통해 모든 수식을 무시하고 텍스트 그대로 가져옴
                 const workbook = XLSX.read(data, {type: 'array', raw: false});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
                 let col = { date: -1, store: -1, price: -1, inst: -1 };
-                let headerIdx = -1;
+                let headerFound = false;
+                cardData = [];
 
-                // 1. 헤더 위치 정밀 스캔
+                // 1. 헤더 위치 파악
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i].map(v => String(v).trim());
                     if (r.includes('이용일') && r.includes('이용가맹점')) {
@@ -91,47 +91,42 @@ window.onload = function() {
                             if (cell === '이용금액' || cell === '결제원금') col.price = idx;
                             if (cell === '할부/회차') col.inst = idx;
                         });
-                        headerIdx = i;
-                        break;
+                        headerFound = true;
+                        continue;
                     }
-                }
+                    
+                    // 2. 헤더 이후부터는 무조건 데이터 수집 시도 (개별 Try-Catch)
+                    if (headerFound) {
+                        try {
+                            const storeName = String(rows[i][col.store] || '').trim();
+                            if (!storeName || storeName === "" || storeName.includes('합계') || storeName.includes('상세내역')) continue;
 
-                if (headerIdx === -1) return alert("엑셀 형식을 찾을 수 없습니다.");
+                            let rawPrice = rows[i][col.price];
+                            let priceVal = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
 
-                // 2. 데이터 추출 (개별 행 Try-Catch로 유실 방지)
-                cardData = [];
-                for (let i = headerIdx + 1; i < rows.length; i++) {
-                    try {
-                        const row = rows[i];
-                        const store = String(row[col.store] || '').trim();
-                        
-                        if (!store || store.includes('합계') || store.includes('상세내역')) continue;
+                            // 할부 보정
+                            let instVal = String(rows[i][col.inst] || '-').trim();
+                            if (instVal === '0.01' || instVal === '0' || instVal === '') instVal = '-';
 
-                        let rawPrice = row[col.price];
-                        let price = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
-
-                        // 할부 데이터 보정: 소수점 0.01 등 오동작 방어
-                        let instVal = String(row[col.inst] || '-').trim();
-                        if (instVal === '0.01' || instVal === '0' || instVal === '') instVal = '-';
-
-                        if (price > 0) {
-                            cardData.push({
-                                date: String(row[col.date] || ""),
-                                store: store,
-                                price: price,
-                                inst: instVal,
-                                category: '기타/미분류'
-                            });
+                            if (priceVal > 0) {
+                                cardData.push({
+                                    date: String(rows[i][col.date] || ""),
+                                    store: storeName,
+                                    price: priceVal,
+                                    inst: instVal,
+                                    category: '기타/미분류'
+                                });
+                            }
+                        } catch (rowErr) {
+                            console.error("행 처리 스킵:", rowErr);
+                            continue;
                         }
-                    } catch (rowErr) {
-                        console.error(`${i}행 처리 중 에러 발생, 스킵함:`, rowErr);
-                        continue; 
                     }
                 }
                 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 성공: ${cardData.length}건 분석 완료!`;
+                document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
             } catch (err) { alert("파일 처리 오류: " + err.message); }
         };
         reader.readAsArrayBuffer(file);
@@ -152,7 +147,7 @@ window.onload = function() {
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 
-    // 대시보드 및 저장 기능
+    // --- 이하 기존 기능 동일 ---
     function updateDashboard() {
         const sumMap = {};
         fixedCosts.forEach(item => sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount);
