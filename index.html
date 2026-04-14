@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 최종 완성본</title>
+    <title>성빈님의 스마트 가계부 - 무결성 최종본</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f4f7f6; }
-        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1400px; margin: 0 auto; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1300px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
@@ -34,7 +34,7 @@
     </div>
 
     <div style="display:flex; gap:10px; justify-content:center; margin-bottom:15px;">
-        <input type="text" id="fixedName" placeholder="고정항목">
+        <input type="text" id="fixedName" placeholder="고정지출명">
         <input type="number" id="fixedAmount" placeholder="금액">
         <button onclick="addFixedCost()" class="btn">추가</button>
     </div>
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">데이터 개수와 금액 정합성을 모두 맞췄습니다.</p>
+        <p id="status">건수, 금액, 할부 정보를 모두 정교화했습니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -73,14 +73,14 @@ window.onload = function() {
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array', raw: false});
+                // raw: false와 cellText: true를 조합하여 엑셀에 보이는 글자 그대로 가져옴
+                const workbook = XLSX.read(data, {type: 'array', raw: false, cellText: true});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
                 let col = { date: -1, store: -1, price: -1, inst: -1 };
                 let headerIdx = -1;
 
-                // 1. 헤더 위치 정밀 스캔
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i].map(v => String(v).trim());
                     if (r.includes('이용일') && r.includes('이용가맹점')) {
@@ -102,20 +102,15 @@ window.onload = function() {
                         const store = String(r[col.store] || '').trim();
                         if (!store || store.includes('합계') || store.includes('상세내역')) continue;
 
-                        // [정밀 타격] 결제원금 컬럼의 숫자만 정직하게 가져옴
-                        let rawPrice = r[col.price];
-                        let price = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
+                        // [금액] 결제원금 칸의 텍스트에서 숫자만 추출
+                        let rawPrice = String(r[col.price] || "0");
+                        let price = parseInt(rawPrice.replace(/[^0-9]/g, "")) || 0;
 
-                        // 보조: 만약 결제원금이 0인데 가맹점명 옆에 숫자가 있다면 (특수 행 대비)
-                        if (price === 0) {
-                            const match = store.match(/(\d{1,3}(,\d{3})*)$|(\d+)$/);
-                            if (match) price = parseInt(match[0].replace(/,/g, "")) || 0;
-                        }
+                        // [할부] 엑셀에 보이는 그대로 가져오되, 일시불 성격의 값만 보정
+                        let instVal = String(r[col.inst] || "-").trim();
+                        if (instVal === "0.01" || instVal === "0" || instVal === "") instVal = "-";
 
-                        let instVal = String(r[col.inst] || '-').trim();
-                        if (instVal === '0.01' || instVal === '0' || instVal === '') instVal = '-';
-
-                        if (price > 0 && price < 10000000) { // 1천만 원 이상 비정상 데이터 방어
+                        if (price > 0 && price < 10000000) {
                             cardData.push({
                                 date: String(r[col.date] || ""),
                                 store: store,
@@ -129,7 +124,7 @@ window.onload = function() {
 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
+                document.getElementById('status').textContent = `✅ 최종 분석 완료: 총 ${cardData.length}건`;
             } catch (err) { alert("파일 처리 실패"); }
         };
         reader.readAsArrayBuffer(file);
@@ -164,19 +159,4 @@ window.onload = function() {
     }
     window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
     window.addFixedCost = function() {
-        const n = document.getElementById('fixedName').value;
-        const a = parseInt(document.getElementById('fixedAmount').value);
-        if (n && a) { fixedCosts.push({ name: n, amount: a }); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); }
-    };
-    window.removeFixed = function(i) { fixedCosts.splice(i, 1); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); };
-    function renderFixedCosts() { document.getElementById('fixedList').innerHTML = fixedCosts.map((item, i) => `<span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 <b onclick="removeFixed(${i})" style="color:red; cursor:pointer;">×</b></span>`).join(''); }
-    window.saveCurrentMonth = function() {
-        const m = document.getElementById('saveMonth').value.trim();
-        if (m && cardData.length > 0) { archives[m] = cardData; localStorage.setItem('monthlyArchives', JSON.stringify(archives)); renderArchiveList(); alert(m + " 저장됨"); }
-    };
-    function renderArchiveList() { document.getElementById('archiveList').innerHTML = Object.keys(archives).map(m => `<button onclick="loadMonth('${m}')" style="padding:5px 10px; border-radius:15px; border:1px solid #0070f3; background:white; color:#0070f3; cursor:pointer; margin-right:5px;">${m}</button>`).join(''); }
-    window.loadMonth = function(m) { cardData = archives[m]; updateDashboard(); renderTable(); document.getElementById('saveMonth').value = m; };
-};
-</script>
-</body>
-</html>
+        const n = document.getElementById('fixedName
