@@ -11,24 +11,18 @@
         body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1100px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
-        
-        /* 고정 지출 입력창 */
         .input-group { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap; }
         input { padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         
-        /* 업로드 영역 */
-        .upload-area { border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
+        /* 업로드 영역: label로 감싸서 클릭 신뢰도 향상 */
+        .upload-area { display: block; border: 2px dashed var(--primary); padding: 30px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
 
-        /* 그래프 영역 */
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
         .chart-container { background: #fff; padding: 15px; border: 1px solid #eee; border-radius: 12px; height: 350px; }
-
-        /* 테이블 */
-        .table-wrap { overflow-x: auto; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; }
     </style>
@@ -48,11 +42,11 @@
         <div id="fixedList" style="text-align:center; margin-bottom:20px;"></div>
     </div>
 
-    <div class="upload-area" id="dropZone">
+    <label class="upload-area" for="excelInput" id="dropZone">
         <strong style="font-size: 1.1em;">이곳을 클릭하여 현대카드 엑셀 업로드</strong>
         <p id="status" style="margin-top:10px; color:#666;">파일을 선택하면 카테고리별로 자동 분류됩니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
-    </div>
+    </label>
 
     <div class="dashboard">
         <div class="chart-container"><canvas id="pieChart"></canvas></div>
@@ -69,15 +63,29 @@ window.onload = function() {
     let pieChart, barChart;
 
     const categoryRules = {
-        '교통/주유': ['주유', '충전', '주차', '하이패스', '철도', '택시', 'IC'],
-        '식비': ['식당', '푸드', '커피', '카페', '스타벅스', '음식점', '치킨', '피자'],
-        '쇼핑': ['네이버페이', '쿠팡', '마트', '백화점', '편의점', '올리브영'],
-        '주거/통신': ['통신', 'SKT', 'KT', 'LG', '관리비', '전기'],
-        '의료/보험': ['병원', '약국', '의원', '치과', '보험']
+        '교통/주유': ['주유', '충전', '주차', '하이패스', '철도', '택시', 'IC', '주유소'],
+        '식비': ['식당', '푸드', '커피', '카페', '스타벅스', '음식점', '치킨', '피자', '베이커리'],
+        '쇼핑': ['네이버페이', '쿠팡', '마트', '백화점', '편의점', '올리브영', '지마켓', '옥션'],
+        '주거/통신': ['통신', 'SKT', 'KT', 'LG', '관리비', '전기', '수도'],
+        '의료/보험': ['병원', '약국', '의원', '치과', '보험', '의료']
     };
 
-    // 초기 실행
     renderFixedCosts();
     updateAll();
 
-    //
+    // 고정 지출 추가 이벤트
+    document.getElementById('addBtn').onclick = function() {
+        const name = document.getElementById('fixedName').value;
+        const amount = parseInt(document.getElementById('fixedAmount').value);
+        if (name && amount) {
+            fixedCosts.push({ name, amount });
+            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+            renderFixedCosts();
+            updateAll();
+            document.getElementById('fixedName').value = '';
+            document.getElementById('fixedAmount').value = '';
+        }
+    };
+
+    // 엑셀 파일 선택 시 실행되는 로직
+    document.getElementById('excelInput').on
