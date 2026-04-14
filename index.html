@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 월별 아카이브 버전</title>
+    <title>성빈님의 스마트 가계부 - 데이터 정제 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -19,7 +19,6 @@
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; padding: 10px; }
         .archive-list { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
         .archive-item { background: #fff; border: 1px solid var(--primary); color: var(--primary); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; }
-        .archive-item:hover { background: var(--primary); color: #white; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; background: #fff; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; position: sticky; top: 0; }
@@ -30,7 +29,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 & 아카이브 시스템</h1>
+    <h1>📊 지출 분석 시스템 (합계 행 예외처리)</h1>
     
     <div class="section">
         <h3>📂 저장된 데이터 기록</h3>
@@ -38,13 +37,13 @@
     </div>
 
     <div class="section" style="border-top: 1px solid #eee; padding-top: 20px;">
-        <h3 style="margin-bottom:10px;">🏠 고정 지출 & 데이터 관리</h3>
+        <h3>🏠 데이터 관리</h3>
         <div style="display:flex; gap:10px; justify-content:center; margin-bottom:15px;">
             <input type="text" id="fixedName" placeholder="고정항목" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
             <input type="number" id="fixedAmount" placeholder="금액" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
             <button onclick="addFixedCost()" class="btn">고정지출 추가</button>
-            <input type="text" id="saveMonth" placeholder="예: 2024년 3월" style="padding:8px; border-radius:8px; border:1px solid #ddd; margin-left: 20px;">
-            <button onclick="saveCurrentMonth()" class="btn btn-save">현재 상태 저장</button>
+            <input type="text" id="saveMonth" placeholder="예: 2024년 4월" style="padding:8px; border-radius:8px; border:1px solid #ddd; margin-left: 20px;">
+            <button onclick="saveCurrentMonth()" class="btn btn-save">저장하기</button>
         </div>
         <div id="fixedList" style="text-align:center;"></div>
     </div>
@@ -75,29 +74,24 @@ window.onload = function() {
     renderArchiveList();
     updateDashboard();
 
-    // 월별 저장 함수
     window.saveCurrentMonth = function() {
         const monthName = document.getElementById('saveMonth').value.trim();
-        if (!monthName) return alert("저장할 달의 이름을 입력하세요! (예: 2024-03)");
-        if (cardData.length === 0) return alert("저장할 데이터가 없습니다. 엑셀을 먼저 올리세요.");
-
+        if (!monthName) return alert("저장할 이름을 입력하세요!");
         archives[monthName] = cardData;
         localStorage.setItem('monthlyArchives', JSON.stringify(archives));
         renderArchiveList();
-        alert(monthName + " 데이터가 성공적으로 저장되었습니다!");
+        alert(monthName + " 저장 완료!");
     };
 
-    // 저장된 리스트 출력
     function renderArchiveList() {
         const listDiv = document.getElementById('archiveList');
         listDiv.innerHTML = Object.keys(archives).map(month => `
             <div class="archive-item" onclick="loadMonth('${month}')">🗓️ ${month}</div>
-        `).join('') || "<p style='color:#999'>저장된 기록이 없습니다.</p>";
+        `).join('') || "<p style='color:#999'>기록 없음</p>";
     }
 
-    // 데이터 불러오기
     window.loadMonth = function(month) {
-        if (confirm(month + " 데이터를 불러오시겠습니까? 현재 화면의 내용은 교체됩니다.")) {
+        if (confirm(month + " 데이터를 불러옵니까?")) {
             cardData = archives[month];
             updateDashboard();
             renderTable();
@@ -120,7 +114,6 @@ window.onload = function() {
 
     document.getElementById('excelInput').onchange = function(e) {
         const file = e.target.files[0];
-        if (!file) return;
         const reader = new FileReader();
         reader.onload = function(event) {
             const data = new Uint8Array(event.target.result);
@@ -135,8 +128,14 @@ window.onload = function() {
             
             if(headerIdx !== -1) {
                 const rawData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
-                cardData = rawData.map(row => {
-                    const rawStore = String(row['이용가맹점'] || row['가맹점명'] || '미분류');
+                cardData = [];
+                
+                rawData.forEach(row => {
+                    const rawStore = String(row['이용가맹점'] || row['가맹점명'] || '');
+                    
+                    // 핵심 수정: '합계'라는 단어가 포함된 행은 데이터에서 제외 (Continue)
+                    if (rawStore.includes('합계')) return;
+
                     const priceRegex = /([0-9,]+)$/; 
                     const match = rawStore.match(priceRegex);
                     
@@ -150,12 +149,14 @@ window.onload = function() {
                         extractedPrice = (typeof altPrice === 'string') ? parseInt(altPrice.replace(/[^0-9]/g, '')) || 0 : parseInt(altPrice);
                     }
                     
-                    return { 
-                        ...row, 
-                        __category: '기타/미분류', 
-                        __price: extractedPrice, 
-                        __store: cleanStore || rawStore
-                    };
+                    if (extractedPrice > 0) {
+                        cardData.push({ 
+                            ...row, 
+                            __category: '기타/미분류', 
+                            __price: extractedPrice, 
+                            __store: cleanStore || rawStore
+                        });
+                    }
                 });
                 updateDashboard();
                 renderTable();
@@ -170,9 +171,7 @@ window.onload = function() {
             sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount;
         });
         cardData.forEach(item => {
-            if (item.__price > 0) {
-                sumMap[item.__category] = (sumMap[item.__category] || 0) + item.__price;
-            }
+            sumMap[item.__category] = (sumMap[item.__category] || 0) + item.__price;
         });
 
         const labels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
@@ -183,54 +182,4 @@ window.onload = function() {
         
         pieChart = new Chart(document.getElementById('pieChart'), {
             type: 'doughnut',
-            data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] },
-            options: { maintainAspectRatio: false }
-        });
-
-        barChart = new Chart(document.getElementById('barChart'), {
-            type: 'bar',
-            data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] },
-            options: { indexAxis: 'y', maintainAspectRatio: false }
-        });
-    }
-
-    function renderTable() {
-        if(!cardData.length) return;
-        let html = '<table><tr><th>카테고리</th><th>가맹점</th><th>금액</th></tr>';
-        cardData.forEach((row, idx) => {
-            html += `<tr>
-                <td>
-                    <select onchange="updateRowCategory(${idx}, this.value)">
-                        ${categories.map(cat => `<option value="${cat}" ${row.__category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
-                    </select>
-                </td>
-                <td>${row.__store}</td>
-                <td>${row.__price.toLocaleString()}원</td>
-            </tr>`;
-        });
-        document.getElementById('tableOutput').innerHTML = html + '</table>';
-    }
-
-    window.updateRowCategory = function(idx, newCat) {
-        cardData[idx].__category = newCat;
-        updateDashboard();
-    };
-
-    function renderFixedCosts() {
-        const div = document.getElementById('fixedList');
-        div.innerHTML = fixedCosts.map((item, i) => `
-            <span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 
-            <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b></span>
-        `).join('') || "<p>고정 지출을 등록하세요.</p>";
-    }
-
-    window.removeFixed = function(i) {
-        fixedCosts.splice(i, 1);
-        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-        renderFixedCosts();
-        updateDashboard();
-    };
-};
-</script>
-</body>
-</html>
+            data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e',
