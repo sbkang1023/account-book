@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 정밀 매칭 버전</title>
+    <title>성빈님의 스마트 가계부 - 금액 보정판</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f4f7f6; }
-        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1400px; margin: 0 auto; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1300px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
@@ -25,7 +25,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (지능형 매칭 모드)</h1>
+    <h1>📊 지출 분석 시스템 (데이터 정규화 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">병합된 셀 구조를 분석하여 정확한 데이터를 찾아냅니다.</p>
+        <p id="status">숫자가 꼬이지 않도록 데이터를 정규화합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -51,7 +51,7 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div id="tableOutput" style="overflow-x:auto; max-height: 600px;"></div>
+    <div id="tableOutput" style="overflow-x:auto; max-height: 500px;"></div>
 </div>
 
 <script>
@@ -75,37 +75,63 @@ window.onload = function() {
                 const workbook = XLSX.read(data, {type: 'array'});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 
-                // [지능형 매칭] JSON 형태로 변환하면 SheetJS가 병합된 셀을 알아서 처리해줍니다.
-                const jsonData = XLSX.utils.sheet_to_json(sheet, {range: 2}); // 3번째 줄부터 헤더로 인식
+                // 헤더를 찾기 위해 가장 안전한 2차원 배열로 먼저 읽음
+                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
+                let col = { date: -1, store: -1, price: -1, inst: -1 };
+                let headerIdx = -1;
+
+                for (let i = 0; i < rows.length; i++) {
+                    const r = rows[i];
+                    if (r.join('').includes('이용일') && r.join('').includes('이용가맹점')) {
+                        r.forEach((cell, idx) => {
+                            if (cell === '이용일') col.date = idx;
+                            if (cell === '이용가맹점') col.store = idx;
+                            if (cell === '이용금액' || cell === '결제원금') col.price = idx;
+                            if (cell === '할부/회차') col.inst = idx;
+                        });
+                        headerIdx = i;
+                        break;
+                    }
+                }
+
                 cardData = [];
-                jsonData.forEach(row => {
-                    const store = row['이용가맹점'] || "";
-                    if (!store || String(store).includes('합계') || String(store).includes('상세내역')) return;
+                for (let i = headerIdx + 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    const store = String(row[col.store] || '').trim();
+                    if (!store || store.includes('합계') || store.includes('상세내역')) continue;
 
-                    // 금액 컬럼 후보들
-                    let priceRaw = row['이용금액'] || row['결제원금'] || row['금액'] || 0;
-                    let price = parseInt(String(priceRaw).replace(/[^0-9]/g, "")) || 0;
+                    // [핵심] 금액 파싱 로직 강화
+                    // 병합된 셀 때문에 금액이 가맹점 이름 뒤에 붙어 나오는 경우 방어
+                    let priceVal = 0;
+                    let rawPrice = row[col.price];
+                    
+                    if (rawPrice) {
+                        priceVal = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
+                    }
 
-                    if (price > 0) {
+                    // 만약 가맹점 이름에 숫자가 붙어있고(네이버페이369,000) 금액 칸이 비어있다면 분리 시도
+                    if (priceVal === 0 || priceVal > 10000000) { 
+                        const match = store.match(/(\d{1,3}(,\d{3})*)$|(\d+)$/);
+                        if (match) {
+                            priceVal = parseInt(match[0].replace(/,/g, "")) || 0;
+                        }
+                    }
+
+                    if (priceVal > 0 && priceVal < 5000000) { // 500만원 이상 단일 결제는 오분류 가능성으로 방어
                         cardData.push({
-                            date: row['이용일'] || "",
-                            store: store,
-                            price: price,
-                            inst: row['할부/회차'] || "-",
-                            category: '기타/미분류',
-                            raw: row // 전체 데이터 보관
+                            date: String(row[col.date] || ""),
+                            store: store.replace(/[\d,]+$/, "").trim(), // 이름에서 금액 제거
+                            price: priceVal,
+                            inst: String(row[col.inst] || "-"),
+                            category: '기타/미분류'
                         });
                     }
-                });
-
-                if (cardData.length > 0) {
-                    updateDashboard();
-                    renderTable();
-                    document.getElementById('status').textContent = `✅ ${cardData.length}건 분석 완료!`;
-                } else {
-                    alert("데이터를 읽지 못했습니다. 엑셀의 '이용일', '이용가맹점' 컬럼명을 확인해주세요.");
                 }
+
+                updateDashboard();
+                renderTable();
+                document.getElementById('status').textContent = `✅ ${cardData.length}건 분석 완료!`;
             } catch (err) { alert("오류: " + err.message); }
         };
         reader.readAsArrayBuffer(file);
@@ -118,16 +144,13 @@ window.onload = function() {
                 <td><select onchange="updateRowCategory(${idx}, this.value)">
                     ${categories.map(cat => `<option value="${cat}" ${item.category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
                 </select></td>
-                <td>${item.date}</td>
-                <td>${item.store}</td>
-                <td>${item.inst}</td>
+                <td>${item.date}</td><td>${item.store}</td><td>${item.inst}</td>
                 <td style="font-weight:bold;">${item.price.toLocaleString()}원</td>
             </tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 
-    // 이하 기존 기능 동일 (updateDashboard, saveMonth 등)
     window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
     window.addFixedCost = function() {
         const n = document.getElementById('fixedName').value;
