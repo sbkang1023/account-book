@@ -159,4 +159,19 @@ window.onload = function() {
     }
     window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
     window.addFixedCost = function() {
-        const n = document.getElementById('fixedName
+        const n = document.getElementById('fixedName').value;
+        const a = parseInt(document.getElementById('fixedAmount').value);
+        if (n && a) { fixedCosts.push({ name: n, amount: a }); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); }
+    };
+    window.removeFixed = function(i) { fixedCosts.splice(i, 1); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); };
+    function renderFixedCosts() { document.getElementById('fixedList').innerHTML = fixedCosts.map((item, i) => `<span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 <b onclick="removeFixed(${i})" style="color:red; cursor:pointer;">×</b></span>`).join(''); }
+    window.saveCurrentMonth = function() {
+        const m = document.getElementById('saveMonth').value.trim();
+        if (m && cardData.length > 0) { archives[m] = cardData; localStorage.setItem('monthlyArchives', JSON.stringify(archives)); renderArchiveList(); alert(m + " 저장됨"); }
+    };
+    function renderArchiveList() { document.getElementById('archiveList').innerHTML = Object.keys(archives).map(m => `<button onclick="loadMonth('${m}')" style="padding:5px 10px; border-radius:15px; border:1px solid #0070f3; background:white; color:#0070f3; cursor:pointer; margin-right:5px;">${m}</button>`).join(''); }
+    window.loadMonth = function(m) { cardData = archives[m]; updateDashboard(); renderTable(); document.getElementById('saveMonth').value = m; };
+};
+</script>
+</body>
+</html>
