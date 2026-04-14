@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 데이터 정제 버전</title>
+    <title>성빈님의 스마트 가계부 - 데이터 정석 파싱</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -11,7 +11,6 @@
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn:hover { opacity: 0.8; }
         .btn-save { background: #28a745; margin-left: 10px; }
         .upload-area { display: block; border: 2px dashed var(--primary); padding: 20px; text-align: center; cursor: pointer; background: #f0f7ff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
@@ -29,7 +28,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (합계 행 예외처리)</h1>
+    <h1>📊 지출 분석 시스템 (정석 컬럼 파싱)</h1>
     
     <div class="section">
         <h3>📂 저장된 데이터 기록</h3>
@@ -42,7 +41,7 @@
             <input type="text" id="fixedName" placeholder="고정항목" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
             <input type="number" id="fixedAmount" placeholder="금액" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
             <button onclick="addFixedCost()" class="btn">고정지출 추가</button>
-            <input type="text" id="saveMonth" placeholder="예: 2024년 4월" style="padding:8px; border-radius:8px; border:1px solid #ddd; margin-left: 20px;">
+            <input type="text" id="saveMonth" placeholder="예: 2026년 04월" style="padding:8px; border-radius:8px; border:1px solid #ddd; margin-left: 20px;">
             <button onclick="saveCurrentMonth()" class="btn btn-save">저장하기</button>
         </div>
         <div id="fixedList" style="text-align:center;"></div>
@@ -58,7 +57,7 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div id="tableOutput" style="overflow-x:auto; max-height: 400px;"></div>
+    <div id="tableOutput" style="overflow-x:auto; max-height: 500px;"></div>
 </div>
 
 <script>
@@ -131,30 +130,27 @@ window.onload = function() {
                 cardData = [];
                 
                 rawData.forEach(row => {
-                    const rawStore = String(row['이용가맹점'] || row['가맹점명'] || '');
+                    const store = String(row['이용가맹점'] || row['가맹점명'] || '');
                     
-                    // 핵심 수정: '합계'라는 단어가 포함된 행은 데이터에서 제외 (Continue)
-                    if (rawStore.includes('합계')) return;
+                    // '합계' 행 제외
+                    if (store.includes('합계') || store === '') return;
 
-                    const priceRegex = /([0-9,]+)$/; 
-                    const match = rawStore.match(priceRegex);
+                    // 핵심 수정: 이름에서 숫자를 뜯지 않고 '이용금액' 컬럼에서 직접 추출
+                    let priceRaw = row['이용금액'] || row['결제원금'] || row['금액'] || 0;
+                    let price = 0;
                     
-                    let extractedPrice = 0;
-                    let cleanStore = rawStore;
-                    if (match) {
-                        extractedPrice = parseInt(match[1].replace(/,/g, '')) || 0;
-                        cleanStore = rawStore.replace(priceRegex, '').trim();
+                    if (typeof priceRaw === 'string') {
+                        price = parseInt(priceRaw.replace(/[^0-9]/g, '')) || 0;
                     } else {
-                        let altPrice = row['이용금액'] || row['결제원금'] || 0;
-                        extractedPrice = (typeof altPrice === 'string') ? parseInt(altPrice.replace(/[^0-9]/g, '')) || 0 : parseInt(altPrice);
+                        price = parseInt(priceRaw) || 0;
                     }
                     
-                    if (extractedPrice > 0) {
+                    if (price > 0) {
                         cardData.push({ 
                             ...row, 
                             __category: '기타/미분류', 
-                            __price: extractedPrice, 
-                            __store: cleanStore || rawStore
+                            __price: price, 
+                            __store: store 
                         });
                     }
                 });
