@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>성빈님의 스마트 가계부</title>
+    <title>성빈님의 스마트 가계부 - 최종 통합본</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>이곳을 클릭하여 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">이미지 내 가맹점 패턴 분석 알고리즘이 적용되었습니다.</p>
+        <p id="status" style="margin-top:10px; color:#666;">자동 분류 시스템이 적용되었습니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -60,12 +60,11 @@ window.onload = function() {
     let cardData = [];
     let pieChart, barChart;
 
-    // --- [카테고리 분류 규칙 - 성빈님 가계부 맞춤형] ---
     const categoryRules = {
         '차량/주유': ['주유', '충전', '주차', 'IC', '공영', '세차', '하이패스'],
         '식비/생활': ['식당', '푸드', '커피', '카페', '베이커리', '김밥', '치킨', '밥', '스타벅스', '요리', '고기'],
         '쇼핑/마트': ['네이버페이', '쿠팡', '마트', '편의점', 'GS25', 'CU', '올리브영', '다이소', '배달의민족', 'KCP', 'Apple'],
-        '의료/보험': ['병원', '약국', '치과', '의원', '내과', '의료', '보험'],
+        '의료/건강': ['병원', '약국', '치과', '의원', '내과', '의료', '보험', '플란트'],
         '통신/주거': ['핸드폰', '휴대폰', '통신', 'SKT', 'KT', 'LG', '관리비', '전기', '도시가스']
     };
 
@@ -100,11 +99,15 @@ window.onload = function() {
                 for(let i=0; i<rows.length; i++) {
                     if(rows[i].join('').includes('이용일')) { headerIdx = i; break; }
                 }
+                if(headerIdx === -1) { alert("'이용일' 헤더를 찾지 못했습니다."); return; }
+
                 cardData = XLSX.utils.sheet_to_json(sheet, {range: headerIdx});
                 updateDashboard();
                 renderTable(cardData);
                 document.getElementById('status').textContent = `✅ ${cardData.length}건 분석 완료`;
-            } catch (err) { alert("오류: " + err.message); }
+            } catch (err) { 
+                alert("오류: " + err.message); 
+            }
         };
         reader.readAsArrayBuffer(file);
     };
@@ -112,63 +115,9 @@ window.onload = function() {
     function updateDashboard() {
         const sumMap = {};
         
-        // 1. 고정 지출 분류
         fixedCosts.forEach(item => {
-            // 고정 지출 이름에 키워드가 있으면 해당 카테고리로, 없으면 이름 그대로 사용
             let category = '기타/미분류';
             for (const [cat, keywords] of Object.entries(categoryRules)) {
                 if (keywords.some(k => item.name.includes(k))) { category = cat; break; }
             }
-            if (category === '기타/미분류') category = item.name; 
-            sumMap[category] = (sumMap[category] || 0) + item.amount;
-        });
-        
-        // 2. 카드 지출 키워드 분류
-        cardData.forEach(row => {
-            // 핵심 수정: 가맹점명에서 숫자와 콤마를 완전히 제거하여 순수 텍스트만 추출
-            let storeRaw = row['이용가맹점'] || row['가맹점명'] || '미분류';
-            let storeClean = storeRaw.replace(/[0-9,]/g, '').trim(); 
-            
-            let priceRaw = row['이용금액'] || row['결제원금'] || 0;
-            let price = (typeof priceRaw === 'string') ? parseInt(priceRaw.replace(/[^0-9]/g, '')) || 0 : parseInt(priceRaw) || 0;
-            
-            if (price > 0) {
-                let category = '기타/미분류';
-                for (const [cat, keywords] of Object.entries(categoryRules)) {
-                    // 키워드 매칭
-                    if (keywords.some(k => storeClean.includes(k))) {
-                        category = cat;
-                        break;
-                    }
-                }
-                sumMap[category] = (sumMap[category] || 0) + price;
-            }
-        });
-
-        const sortedLabels = Object.keys(sumMap).sort((a,b) => sumMap[b] - sumMap[a]);
-        const sortedValues = sortedLabels.map(l => sumMap[l]);
-        drawCharts(sortedLabels, sortedValues);
-    }
-
-    function drawCharts(labels, data) {
-        if(pieChart) pieChart.destroy();
-        if(barChart) barChart.destroy();
-        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#ff9f40', '#5a5c69'];
-        
-        pieChart = new Chart(document.getElementById('pieChart'), {
-            type: 'doughnut',
-            data: { labels, datasets: [{ data, backgroundColor: colors }] },
-            options: { maintainAspectRatio: false, plugins: { title: { display: true, text: '지출 비중' } } }
-        });
-
-        barChart = new Chart(document.getElementById('barChart'), {
-            type: 'bar',
-            data: { labels, datasets: [{ label:'금액(원)', data, backgroundColor: '#0070f3' }] },
-            options: { indexAxis: 'y', maintainAspectRatio: false, scales: { x: { ticks: { callback: v => v.toLocaleString() } } } }
-        });
-    }
-
-    function renderFixedCosts() {
-        const div = document.getElementById('fixedList');
-        div.innerHTML = fixedCosts.map((item, i) => `
-            <span style="background:#eef; padding:5px 10px
+            if (category ===
