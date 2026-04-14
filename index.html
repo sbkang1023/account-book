@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 할부내역 포함 버전</title>
+    <title>성빈님의 스마트 가계부 - 데이터 무손실 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f4f7f6; }
-        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1250px; margin: 0 auto; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1300px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h3 { color: var(--primary); text-align: center; }
         .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
@@ -25,7 +25,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (할부/회차 추가)</h1>
+    <h1>📊 지출 분석 시스템 (데이터 무손실 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -44,7 +44,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>이곳을 클릭하여 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">전체 데이터를 끝까지 분석합니다.</p>
+        <p id="status" style="margin-top:10px; color:#666;">데이터가 누락되지 않도록 정밀 스캔을 시작합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -69,34 +69,6 @@ window.onload = function() {
     renderArchiveList();
     updateDashboard();
 
-    window.addFixedCost = function() {
-        const name = document.getElementById('fixedName').value;
-        const amount = parseInt(document.getElementById('fixedAmount').value);
-        if (name && amount) {
-            fixedCosts.push({ name, amount });
-            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-            renderFixedCosts();
-            updateDashboard();
-            document.getElementById('fixedName').value = '';
-            document.getElementById('fixedAmount').value = '';
-        }
-    };
-
-    window.removeFixed = function(i) {
-        fixedCosts.splice(i, 1);
-        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
-        renderFixedCosts();
-        updateDashboard();
-    };
-
-    function renderFixedCosts() {
-        const div = document.getElementById('fixedList');
-        div.innerHTML = fixedCosts.map((item, i) => `
-            <span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 
-            <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b></span>
-        `).join('') || "고정 지출이 없습니다.";
-    }
-
     document.getElementById('excelInput').onchange = function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -110,37 +82,42 @@ window.onload = function() {
                 let colIdx = { date: -1, store: -1, price: -1, installment: -1 };
                 let startRow = -1;
 
-                // 헤더 찾기 로직 강화
+                // [강화] 모든 줄을 뒤져서 각 컬럼의 인덱스를 개별적으로 찾음
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
-                    if (r.includes('이용일') && r.includes('이용가맹점')) {
-                        startRow = i;
-                        r.forEach((cell, idx) => {
-                            if (cell === '이용일') colIdx.date = idx;
-                            if (cell === '이용가맹점') colIdx.store = idx;
-                            if (cell === '이용금액' || cell === '결제원금') colIdx.price = idx;
-                            if (cell === '할부/회차') colIdx.installment = idx;
-                        });
-                        break;
-                    }
+                    r.forEach((cell, idx) => {
+                        const val = String(cell).trim();
+                        if (val === '이용일') { colIdx.date = idx; startRow = Math.max(startRow, i); }
+                        if (val === '이용가맹점') { colIdx.store = idx; startRow = Math.max(startRow, i); }
+                        if (val === '이용금액' || val === '결제원금') { colIdx.price = idx; startRow = Math.max(startRow, i); }
+                        if (val === '할부/회차') { colIdx.installment = idx; }
+                    });
+                    if (colIdx.date !== -1 && colIdx.store !== -1 && colIdx.price !== -1) break;
                 }
 
-                if (startRow === -1) return alert("엑셀 형식을 확인해주세요.");
+                if (startRow === -1) return alert("필수 컬럼을 찾지 못했습니다.");
 
                 cardData = [];
+                // [강화] startRow 이후부터 끝까지 빈 줄 없이 스캔
                 for (let i = startRow + 1; i < rows.length; i++) {
                     const row = rows[i];
-                    const store = String(row[colIdx.store] || '');
+                    const store = String(row[colIdx.store] || '').trim();
+                    const date = String(row[colIdx.date] || '').trim();
                     
-                    // 합계 행이거나 빈 행이면 건너뛰되, 루프는 멈추지 않음
-                    if (store.includes('합계') || !store || store === 'undefined') continue;
+                    // 합계 행이거나 데이터가 없는 행 스킵
+                    if (!store || store === 'undefined' || store.includes('합계') || store === '결제예정 상세내역') continue;
 
                     let rawPrice = row[colIdx.price];
-                    let price = (typeof rawPrice === 'string') ? parseInt(rawPrice.replace(/[^0-9]/g, '')) || 0 : parseInt(rawPrice) || 0;
+                    let price = 0;
+                    if (typeof rawPrice === 'string') {
+                        price = parseInt(rawPrice.replace(/[^0-9]/g, '')) || 0;
+                    } else {
+                        price = parseInt(rawPrice) || 0;
+                    }
 
                     if (price > 0) {
                         cardData.push({
-                            date: String(row[colIdx.date] || ''),
+                            date: date,
                             store: store,
                             price: price,
                             installment: String(row[colIdx.installment] || '-'),
@@ -151,7 +128,7 @@ window.onload = function() {
 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 성공: ${cardData.length}건 분석 완료`;
+                document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
 
             } catch (err) { alert("오류: " + err.message); }
         };
@@ -187,9 +164,8 @@ window.onload = function() {
                 <td><select onchange="updateRowCategory(${idx}, this.value)">
                     ${categories.map(cat => `<option value="${cat}" ${row.category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
                 </select></td>
-                <td>${row.date}</td>
-                <td>${row.store}</td>
-                <td style="text-align:center; color:#666;">${row.installment}</td>
+                <td>${row.date}</td><td>${row.store}</td>
+                <td style="text-align:center;">${row.installment}</td>
                 <td>${row.price.toLocaleString()}원</td>
             </tr>`;
         });
@@ -201,9 +177,37 @@ window.onload = function() {
         updateDashboard();
     };
 
+    window.addFixedCost = function() {
+        const name = document.getElementById('fixedName').value;
+        const amount = parseInt(document.getElementById('fixedAmount').value);
+        if (name && amount) {
+            fixedCosts.push({ name, amount });
+            localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+            renderFixedCosts();
+            updateDashboard();
+            document.getElementById('fixedName').value = '';
+            document.getElementById('fixedAmount').value = '';
+        }
+    };
+
+    window.removeFixed = function(i) {
+        fixedCosts.splice(i, 1);
+        localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts));
+        renderFixedCosts();
+        updateDashboard();
+    };
+
+    function renderFixedCosts() {
+        const div = document.getElementById('fixedList');
+        div.innerHTML = fixedCosts.map((item, i) => `
+            <span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 
+            <b onclick="removeFixed(${i})" style="color:red; cursor:pointer; margin-left:5px">×</b></span>
+        `).join('') || "고정 지출 없음";
+    }
+
     window.saveCurrentMonth = function() {
         const month = document.getElementById('saveMonth').value.trim();
-        if (!month || cardData.length === 0) return alert("이름을 입력하고 데이터를 업로드하세요.");
+        if (!month || cardData.length === 0) return alert("이름 입력 및 데이터 업로드 필수!");
         archives[month] = cardData;
         localStorage.setItem('monthlyArchives', JSON.stringify(archives));
         renderArchiveList();
