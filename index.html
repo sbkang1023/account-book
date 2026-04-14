@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 금액 보정판</title>
+    <title>성빈님의 스마트 가계부 - 할부 보정판</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -25,7 +25,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (데이터 정규화 모드)</h1>
+    <h1>📊 스마트 지출 분석 시스템 (V1.0)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">숫자가 꼬이지 않도록 데이터를 정규화합니다.</p>
+        <p id="status">할부/회차 데이터 포맷 보정을 완료했습니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -72,10 +72,9 @@ window.onload = function() {
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
+                // raw: false, cellText: true 설정을 통해 엑셀에 보이는 텍스트 그대로 가져옴
+                const workbook = XLSX.read(data, {type: 'array', cellText: true, cellNF: true});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                
-                // 헤더를 찾기 위해 가장 안전한 2차원 배열로 먼저 읽음
                 const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
                 let col = { date: -1, store: -1, price: -1, inst: -1 };
@@ -101,34 +100,24 @@ window.onload = function() {
                     const store = String(row[col.store] || '').trim();
                     if (!store || store.includes('합계') || store.includes('상세내역')) continue;
 
-                    // [핵심] 금액 파싱 로직 강화
-                    // 병합된 셀 때문에 금액이 가맹점 이름 뒤에 붙어 나오는 경우 방어
                     let priceVal = 0;
                     let rawPrice = row[col.price];
-                    
-                    if (rawPrice) {
-                        priceVal = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
-                    }
+                    priceVal = parseInt(String(rawPrice).replace(/[^0-9]/g, "")) || 0;
 
-                    // 만약 가맹점 이름에 숫자가 붙어있고(네이버페이369,000) 금액 칸이 비어있다면 분리 시도
-                    if (priceVal === 0 || priceVal > 10000000) { 
-                        const match = store.match(/(\d{1,3}(,\d{3})*)$|(\d+)$/);
-                        if (match) {
-                            priceVal = parseInt(match[0].replace(/,/g, "")) || 0;
-                        }
-                    }
+                    // 할부/회차 데이터 정제 (0.01 등의 소수점 방어)
+                    let instVal = String(row[col.inst] || '-').trim();
+                    if (instVal === '0.01' || instVal === '0') instVal = '-';
 
-                    if (priceVal > 0 && priceVal < 5000000) { // 500만원 이상 단일 결제는 오분류 가능성으로 방어
+                    if (priceVal > 0) {
                         cardData.push({
                             date: String(row[col.date] || ""),
-                            store: store.replace(/[\d,]+$/, "").trim(), // 이름에서 금액 제거
+                            store: store,
                             price: priceVal,
-                            inst: String(row[col.inst] || "-"),
+                            inst: instVal,
                             category: '기타/미분류'
                         });
                     }
                 }
-
                 updateDashboard();
                 renderTable();
                 document.getElementById('status').textContent = `✅ ${cardData.length}건 분석 완료!`;
@@ -144,21 +133,15 @@ window.onload = function() {
                 <td><select onchange="updateRowCategory(${idx}, this.value)">
                     ${categories.map(cat => `<option value="${cat}" ${item.category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
                 </select></td>
-                <td>${item.date}</td><td>${item.store}</td><td>${item.inst}</td>
+                <td>${item.date}</td><td>${item.store}</td>
+                <td style="text-align:center;">${item.inst}</td>
                 <td style="font-weight:bold;">${item.price.toLocaleString()}원</td>
             </tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 
-    window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
-    window.addFixedCost = function() {
-        const n = document.getElementById('fixedName').value;
-        const a = parseInt(document.getElementById('fixedAmount').value);
-        if (n && a) { fixedCosts.push({ name: n, amount: a }); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); }
-    };
-    window.removeFixed = function(i) { fixedCosts.splice(i, 1); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); };
-    function renderFixedCosts() { document.getElementById('fixedList').innerHTML = fixedCosts.map((item, i) => `<span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 <b onclick="removeFixed(${i})" style="color:red; cursor:pointer;">×</b></span>`).join(''); }
+    // 대시보드 및 기타 기능 (유지)
     function updateDashboard() {
         const sumMap = {};
         fixedCosts.forEach(item => sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount);
@@ -167,10 +150,17 @@ window.onload = function() {
         const data = labels.map(l => sumMap[l]);
         if(pieChart) pieChart.destroy();
         if(barChart) barChart.destroy();
-        const colors = ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'];
-        pieChart = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors }] }, options: { maintainAspectRatio: false } });
-        barChart = new Chart(document.getElementById('barChart'), { type: 'bar', data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] }, options: { indexAxis: 'y', maintainAspectRatio: false } });
+        pieChart = new Chart(document.getElementById('pieChart').getContext('2d'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] }, options: { maintainAspectRatio: false } });
+        barChart = new Chart(document.getElementById('barChart').getContext('2d'), { type: 'bar', data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] }, options: { indexAxis: 'y', maintainAspectRatio: false } });
     }
+    window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
+    window.addFixedCost = function() {
+        const n = document.getElementById('fixedName').value;
+        const a = parseInt(document.getElementById('fixedAmount').value);
+        if (n && a) { fixedCosts.push({ name: n, amount: a }); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); }
+    };
+    window.removeFixed = function(i) { fixedCosts.splice(i, 1); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); };
+    function renderFixedCosts() { document.getElementById('fixedList').innerHTML = fixedCosts.map((item, i) => `<span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 <b onclick="removeFixed(${i})" style="color:red; cursor:pointer;">×</b></span>`).join(''); }
     window.saveCurrentMonth = function() {
         const m = document.getElementById('saveMonth').value.trim();
         if (m && cardData.length > 0) { archives[m] = cardData; localStorage.setItem('monthlyArchives', JSON.stringify(archives)); renderArchiveList(); alert(m + " 저장됨"); }
