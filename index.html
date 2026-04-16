@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 데이터 긴급 복구</title>
+    <title>성빈님의 스마트 가계부 - 범위 무시 복구판</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -25,7 +25,7 @@
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (데이터 강제 복구 모드)</h1>
+    <h1>📊 지출 분석 시스템 (강제 범위 확장 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -42,7 +42,7 @@
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">중간에 멈추지 않고 파일 끝까지 강제로 데이터를 낚아챕니다.</p>
+        <p id="status">엑셀의 제한 범위를 무시하고 2000행까지 강제 스캔합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -73,16 +73,21 @@ window.onload = function() {
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array', cellText: true, raw: false});
+                const workbook = XLSX.read(data, {type: 'array', cellNF: true, cellText: true, raw: false});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 
-                // [강화] 데이터를 json으로 변환할 때 빈 행을 무시하지 않도록 설정
-                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, blankrows: true, defval: ""});
+                // [강력 조치] 엑셀이 지정한 범위를 무시하고 A1부터 Z2000까지 강제로 확장
+                const rows = XLSX.utils.sheet_to_json(sheet, {
+                    header: 1, 
+                    defval: "", 
+                    range: "A1:Z2000", // 물리적 범위를 강제로 할당
+                    blankrows: true 
+                });
                 
                 let col = { date: -1, store: -1, price: -1, inst: -1 };
                 let headerIdx = -1;
 
-                // 1. 헤더 위치 찾기
+                // 1. 모든 줄을 뒤져서 헤더 위치 식별
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i].map(v => String(v).replace(/\s/g, ''));
                     if (r.some(v => v.includes('이용일')) && r.some(v => v.includes('이용가맹점'))) {
@@ -98,45 +103,45 @@ window.onload = function() {
                     }
                 }
 
-                // 2. 데이터 강제 수집 (루프 중단 절대 금지)
+                // 2. 헤더 이후부터 끝까지 강제 완주
                 cardData = [];
-                for (let i = headerIdx + 1; i < rows.length; i++) {
-                    const row = rows[i];
-                    if (!row || row.length === 0) continue;
+                if (headerIdx !== -1) {
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        try {
+                            const row = rows[i];
+                            const store = String(row[col.store] || '').trim();
+                            const dateStr = String(row[col.date] || '').trim();
+                            
+                            if (!store || store === "" || store.includes('합계') || store.includes('상세내역')) continue;
+                            if (!dateStr.match(/\d/)) continue; 
 
-                    const store = String(row[col.store] || '').trim();
-                    const dateStr = String(row[col.date] || '').trim();
-                    
-                    // 합계 줄이면 건너뛰되 루프는 유지
-                    if (store.includes('합계') || store.includes('상세내역')) continue;
-                    
-                    // 날짜 형식이 아니면(빈 행 등) 건너뛰기
-                    if (!dateStr.match(/\d/) || dateStr === "") continue;
+                            let rawPrice = String(row[col.price] || "0");
+                            let price = parseInt(rawPrice.replace(/[^0-9]/g, "")) || 0;
+                            
+                            // 보정 로직: 금액이 0이면 해당 행 전체를 뒤져서 금액 찾기
+                            if (price === 0) {
+                                row.forEach(cell => {
+                                    let num = parseInt(String(cell).replace(/[^0-9]/g, "")) || 0;
+                                    if (num > price && num < 10000000) price = num;
+                                });
+                            }
 
-                    let rawPrice = String(row[col.price] || "0");
-                    let price = parseInt(rawPrice.replace(/[^0-9]/g, "")) || 0;
+                            let instVal = String(row[col.inst] || "-").trim();
+                            if (instVal === "0.01" || instVal === "0" || instVal === "") instVal = "-";
 
-                    // 할부 정보
-                    let instVal = String(row[col.inst] || "-").trim();
-                    if (instVal === "0.01" || instVal === "0" || instVal === "") instVal = "-";
-
-                    if (price > 0) {
-                        cardData.push({
-                            date: dateStr,
-                            store: store,
-                            price: price,
-                            inst: instVal,
-                            category: '기타/미분류'
-                        });
+                            if (price > 0) {
+                                cardData.push({ date: dateStr, store, price, inst: instVal, category: '기타/미분류' });
+                            }
+                        } catch (e) { continue; }
                     }
                 }
 
                 if (cardData.length > 0) {
                     updateDashboard();
                     renderTable();
-                    document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건 수집`;
+                    document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건 수집됨`;
                 } else {
-                    alert("데이터를 찾을 수 없습니다.");
+                    alert("데이터를 읽지 못했습니다. 헤더(이용일, 이용가맹점)가 있는지 확인해 주세요.");
                 }
             } catch (err) { alert("오류 발생: " + err.message); }
         };
@@ -158,7 +163,7 @@ window.onload = function() {
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 
-    // --- 대시보드/저장 기능 (유지) ---
+    // --- 대시보드 및 저장 기능 유지 ---
     function updateDashboard() {
         const sumMap = {};
         fixedCosts.forEach(item => sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount);
