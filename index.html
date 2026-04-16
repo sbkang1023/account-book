@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 가계부 - 데이터 강제 복구</title>
+    <title>성빈님의 가계부 - 금액 정밀 분석판</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -17,23 +17,23 @@
         table { width: 100%; border-collapse: collapse; font-size: 11px; background: #fff; }
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; position: sticky; top: 0; }
-        .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 12px; border: 1px solid #dde; }
+        .btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 (강제 전수 스캔 모드)</h1>
+    <h1>📊 지출 분석 (금액 정밀 타격 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
-        <button onclick="saveCurrentMonth()" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">저장</button>
+        <button onclick="saveCurrentMonth()" class="btn" style="background:#28a745;">저장</button>
         <div id="archiveList" style="margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
     </div>
 
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">파일의 모든 텍스트를 전수 조사하여 105건을 강제로 찾아냅니다.</p>
+        <p id="status">시스템 숫자를 제외하고 실제 결제 금액만 골라냅니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -49,7 +49,7 @@
 window.onload = function() {
     let cardData = [];
     let archives = JSON.parse(localStorage.getItem('monthlyArchives')) || {};
-    let pieChart, barChart;
+    let pieChart;
 
     renderArchiveList();
 
@@ -59,41 +59,44 @@ window.onload = function() {
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array', cellNF: false, cellText: true});
+                const workbook = XLSX.read(data, {type: 'array', cellText: true});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                
-                // [필살기] sheet_to_json을 쓰지 않고 모든 셀의 원본 데이터를 1차원 배열로 쏟아냄
                 const rawRows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
                 cardData = [];
-                // 모든 줄을 끝까지 순회 (중간에 멈추지 않음)
                 for (let i = 0; i < rawRows.length; i++) {
                     const row = rawRows[i];
                     const rowStr = row.join('|');
-
-                    // 1. 날짜 패턴이 있는지 확인 (예: 2026.04.13 또는 2026년 04월 13일)
                     const dateMatch = rowStr.match(/\d{4}[\.\s년]\s?\d{2}[\.\s월]\s?\d{2}/);
                     
                     if (dateMatch) {
-                        // 2. 가맹점명 추출 (보통 3번째 칸 근처)
-                        const store = String(row[2] || row[1] || "").trim();
+                        const store = String(row[2] || "").trim();
                         
-                        // 3. 금액 추출 (결제원금 칸 위주로 스캔)
+                        // [정밀 타격] 2,000만 원대 오탐을 피하기 위해 
+                        // 1. 가맹점 이름(인덱스 2)에 붙어있는 숫자를 최우선으로 시도
+                        // 2. 아니면 엑셀 줄의 뒷부분(결제원금 위치)에서 숫자 추출
                         let price = 0;
-                        row.forEach(cell => {
-                            const val = String(cell).replace(/[^0-9]/g, "");
-                            if (val.length >= 3 && val.length <= 8) { // 상식적인 결제 금액 범위
+                        const storePriceMatch = store.match(/(\d{1,3}(,\d{3})*)$|(\d+)$/);
+                        
+                        if (storePriceMatch) {
+                            price = parseInt(storePriceMatch[0].replace(/,/g, ''));
+                        } else {
+                            // 가맹점명에 숫자가 없으면 행의 마지막 요소들에서 금액 탐색
+                            for(let j = row.length - 1; j >= 0; j--) {
+                                const val = String(row[j]).replace(/[^0-9]/g, "");
                                 const p = parseInt(val);
-                                if (p > price) price = p; 
+                                if (p > 500 && p < 5000000) { // 500만원 이하의 현실적인 금액만 수집
+                                    price = p;
+                                    break;
+                                }
                             }
-                        });
+                        }
 
-                        if (price > 0 && store !== "" && !store.includes("합계")) {
+                        if (price > 0 && store !== "") {
                             cardData.push({
                                 date: dateMatch[0],
                                 store: store,
-                                price: price,
-                                category: '분류전'
+                                price: price
                             });
                         }
                     }
@@ -101,8 +104,8 @@ window.onload = function() {
 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 성공: 총 ${cardData.length}건을 강제로 찾아냈습니다!`;
-            } catch (err) { alert("분석 실패: " + err.message); }
+                document.getElementById('status').textContent = `✅ 성공: 총 ${cardData.length}건 수집 완료!`;
+            } catch (err) { alert("분석 실패"); }
         };
         reader.readAsArrayBuffer(file);
     };
@@ -110,7 +113,7 @@ window.onload = function() {
     function renderTable() {
         let html = '<table><tr><th>날짜</th><th>가맹점</th><th>금액</th></tr>';
         cardData.forEach(item => {
-            html += `<tr><td>${item.date}</td><td>${item.store}</td><td>${item.price.toLocaleString()}원</td></tr>`;
+            html += `<tr><td>${item.date}</td><td>${item.store}</td><td style="font-weight:bold;">${item.price.toLocaleString()}원</td></tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
@@ -131,7 +134,7 @@ window.onload = function() {
             archives[m] = cardData;
             localStorage.setItem('monthlyArchives', JSON.stringify(archives));
             renderArchiveList();
-            alert(m + " 데이터가 저장되었습니다.");
+            alert(m + " 저장됨");
         }
     };
 
