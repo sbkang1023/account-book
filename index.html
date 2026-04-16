@@ -2,20 +2,20 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 스마트 가계부 - 긴급 복구본</title>
+    <title>성빈님의 가계부 - 할부 제거 버전</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --primary: #0070f3; --bg: #f4f7f6; }
         body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1300px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1 { color: var(--primary); text-align: center; margin-bottom: 30px; }
-        .upload-area { display: block; border: 2px dashed var(--primary); padding: 40px; text-align: center; cursor: pointer; background: #fff; border-radius: 15px; margin: 20px 0; }
+        h1 { color: var(--primary); text-align: center; }
+        .upload-area { display: block; border: 2px dashed var(--primary); padding: 35px; text-align: center; cursor: pointer; background: #fff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; padding: 10px; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; background: #fff; border-radius: 10px; overflow: hidden; }
-        th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; background: #fff; }
+        th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; position: sticky; top: 0; }
         .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 12px; border: 1px solid #dde; }
         select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; }
@@ -24,24 +24,24 @@
 <body>
 
 <div class="box">
-    <h1>📊 스마트 지출 분석 통합 시스템</h1>
+    <h1>📊 지출 분석 시스템 (할부 제거 버전)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
-        <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:10px; border-radius:8px; border:1px solid #ddd; width:150px;">
-        <button onclick="saveCurrentMonth()" class="btn" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">현재 달 저장</button>
-        <div id="archiveList" style="margin-top:15px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
+        <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
+        <button onclick="saveCurrentMonth()" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">현재 달 저장</button>
+        <div id="archiveList" style="margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
     </div>
 
-    <div style="display:flex; gap:10px; justify-content:center; margin-bottom:20px; padding:20px; border-top:1px solid #eee;">
-        <input type="text" id="fixedName" placeholder="고정지출명" style="padding:8px; border-radius:6px; border:1px solid #ddd;">
-        <input type="number" id="fixedAmount" placeholder="금액" style="padding:8px; border-radius:6px; border:1px solid #ddd;">
-        <button onclick="addFixedCost()" style="background:#0070f3; color:white; border:none; padding:8px 15px; border-radius:6px; cursor:pointer;">고정지출 추가</button>
+    <div style="display:flex; gap:10px; justify-content:center; margin-bottom:20px;">
+        <input type="text" id="fixedName" placeholder="고정지출명">
+        <input type="number" id="fixedAmount" placeholder="금액">
+        <button onclick="addFixedCost()" style="background:#0070f3; color:white; border:none; padding:8px 15px; border-radius:8px; cursor:pointer;">고정지출 추가</button>
     </div>
-    <div id="fixedList" style="text-align:center; margin-bottom:20px;"></div>
+    <div id="fixedList" style="text-align:center; margin-bottom:15px;"></div>
 
     <label class="upload-area" for="excelInput">
-        <strong>이곳을 클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status" style="margin-top:10px; color:#666;">파일 내부의 모든 데이터를 강제로 찾아냅니다.</p>
+        <strong>클릭하여 현대카드 엑셀 업로드</strong>
+        <p id="status">할부 정보를 제외하고 '이용일, 가맹점, 금액' 위주로 강제 수집합니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -50,7 +50,7 @@
         <div class="chart-container"><canvas id="barChart"></canvas></div>
     </div>
 
-    <div id="tableOutput" style="overflow-x:auto; max-height: 600px; border-radius: 10px; border: 1px solid #eee;"></div>
+    <div id="tableOutput" style="overflow-x:auto; max-height: 500px; border-radius: 10px; border:1px solid #eee;"></div>
 </div>
 
 <script>
@@ -71,61 +71,62 @@ window.onload = function() {
         reader.onload = function(event) {
             try {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
+                const workbook = XLSX.read(data, {type: 'array', cellNF: false, cellText: true});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 
-                // [강화 로직] 시트의 데이터 범위를 A1부터 Z3000까지 강제로 확장해서 읽음
-                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, range: "A1:Z3000", defval: ""});
+                // [강화] 1. JSON 변환 시 빈 줄 포함 및 범위 강제 확장 (A1부터 Z1500까지)
+                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, range: "A1:Z1500", defval: ""});
                 
-                let col = { date: -1, store: -1, price: -1, inst: -1 };
+                let col = { date: -1, store: -1, price: -1 };
                 let headerFound = false;
                 cardData = [];
 
                 for (let i = 0; i < rows.length; i++) {
-                    const r = rows[i].map(v => String(v).trim());
+                    const r = rows[i].map(v => String(v).replace(/\s/g, ''));
                     
+                    // 헤더 찾기 (이용일, 이용가맹점만 필수로 체크)
                     if (!headerFound) {
-                        if (r.includes('이용일') && r.includes('이용가맹점')) {
-                            r.forEach((cell, idx) => {
-                                if (cell === '이용일') col.date = idx;
-                                if (cell === '이용가맹점') col.store = idx;
-                                if (cell === '결제원금' || cell === '이용금액') col.price = idx;
-                                if (cell === '할부/회차') col.inst = idx;
+                        if (r.some(v => v.includes('이용일')) && r.some(v => v.includes('이용가맹점'))) {
+                            rows[i].forEach((cell, idx) => {
+                                const val = String(cell).replace(/\s/g, '');
+                                if (val.includes('이용일')) col.date = idx;
+                                if (val.includes('이용가맹점')) col.store = idx;
+                                if (val.includes('결제원금') || val.includes('이용금액')) col.price = idx;
                             });
                             headerFound = true;
                         }
                         continue;
                     }
 
-                    const store = r[col.store];
-                    const date = r[col.date];
+                    // 데이터 추출
+                    const store = String(rows[i][col.store] || '').trim();
+                    const date = String(rows[i][col.date] || '').trim();
+                    
                     if (!store || store.includes('합계') || !date.match(/\d/)) continue;
 
-                    let price = parseInt(String(r[col.price]).replace(/[^0-9]/g, "")) || 0;
-                    let instVal = String(r[col.inst] || "-").trim();
-                    if (instVal === "0.01" || instVal === "0") instVal = "-";
+                    let price = parseInt(String(rows[i][col.price] || "0").replace(/[^0-9]/g, "")) || 0;
 
                     if (price > 0) {
-                        cardData.push({ date, store, price, inst: instVal, category: '기타/미분류' });
+                        cardData.push({ date, store, price, category: '기타/미분류' });
                     }
                 }
 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 성공: 총 ${cardData.length}건 분석 완료!`;
+                document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
             } catch (err) { alert("파일 처리 중 오류 발생"); }
         };
         reader.readAsArrayBuffer(file);
     };
 
     function renderTable() {
-        let html = '<table><tr><th>카테고리</th><th>이용일</th><th>가맹점</th><th>할부</th><th>금액</th></tr>';
+        let html = '<table><tr><th>카테고리</th><th>이용일</th><th>가맹점</th><th>금액</th></tr>';
         cardData.forEach((item, idx) => {
             html += `<tr>
                 <td><select onchange="updateRowCategory(${idx}, this.value)">
                     ${categories.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
                 </select></td>
-                <td>${item.date}</td><td>${item.store}</td><td>${item.inst}</td><td>${item.price.toLocaleString()}원</td>
+                <td>${item.date}</td><td>${item.store}</td><td>${item.price.toLocaleString()}원</td>
             </tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
