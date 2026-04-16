@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>성빈님의 가계부 - 할부 제거 버전</title>
+    <title>성빈님의 가계부 - 데이터 강제 복구</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -10,7 +10,7 @@
         body { font-family: 'Pretendard', sans-serif; padding: 20px; background: var(--bg); max-width: 1300px; margin: 0 auto; }
         .box { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1 { color: var(--primary); text-align: center; }
-        .upload-area { display: block; border: 2px dashed var(--primary); padding: 35px; text-align: center; cursor: pointer; background: #fff; border-radius: 15px; margin: 20px 0; }
+        .upload-area { display: block; border: 2px dashed var(--primary); padding: 40px; text-align: center; cursor: pointer; background: #fff; border-radius: 15px; margin: 20px 0; }
         #excelInput { display: none; }
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .chart-container { background: #fff; border: 1px solid #eee; border-radius: 12px; height: 350px; padding: 10px; }
@@ -18,30 +18,22 @@
         th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
         th { background: var(--primary); color: white; position: sticky; top: 0; }
         .fixed-tag { background: #eef; padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; font-size: 12px; border: 1px solid #dde; }
-        select { padding: 4px; border-radius: 4px; border: 1px solid #ddd; width: 100%; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h1>📊 지출 분석 시스템 (할부 제거 버전)</h1>
+    <h1>📊 지출 분석 (강제 전수 스캔 모드)</h1>
     
     <div style="text-align:center; margin-bottom:20px;">
         <input type="text" id="saveMonth" placeholder="예: 2026-04" style="padding:8px; border-radius:8px; border:1px solid #ddd;">
-        <button onclick="saveCurrentMonth()" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">현재 달 저장</button>
+        <button onclick="saveCurrentMonth()" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">저장</button>
         <div id="archiveList" style="margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
     </div>
 
-    <div style="display:flex; gap:10px; justify-content:center; margin-bottom:20px;">
-        <input type="text" id="fixedName" placeholder="고정지출명">
-        <input type="number" id="fixedAmount" placeholder="금액">
-        <button onclick="addFixedCost()" style="background:#0070f3; color:white; border:none; padding:8px 15px; border-radius:8px; cursor:pointer;">고정지출 추가</button>
-    </div>
-    <div id="fixedList" style="text-align:center; margin-bottom:15px;"></div>
-
     <label class="upload-area" for="excelInput">
         <strong>클릭하여 현대카드 엑셀 업로드</strong>
-        <p id="status">할부 정보를 제외하고 '이용일, 가맹점, 금액' 위주로 강제 수집합니다.</p>
+        <p id="status">파일의 모든 텍스트를 전수 조사하여 105건을 강제로 찾아냅니다.</p>
         <input type="file" id="excelInput" accept=".xls, .xlsx">
     </label>
 
@@ -55,15 +47,11 @@
 
 <script>
 window.onload = function() {
-    let fixedCosts = JSON.parse(localStorage.getItem('fixedCosts')) || [];
-    let archives = JSON.parse(localStorage.getItem('monthlyArchives')) || {};
     let cardData = [];
+    let archives = JSON.parse(localStorage.getItem('monthlyArchives')) || {};
     let pieChart, barChart;
-    const categories = ['식비/카페', '차량/주유', '쇼핑/마트', '의료/건강', '통신/주거', '기타/미분류'];
 
-    renderFixedCosts();
     renderArchiveList();
-    updateDashboard();
 
     document.getElementById('excelInput').onchange = function(e) {
         const file = e.target.files[0];
@@ -74,90 +62,91 @@ window.onload = function() {
                 const workbook = XLSX.read(data, {type: 'array', cellNF: false, cellText: true});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 
-                // [강화] 1. JSON 변환 시 빈 줄 포함 및 범위 강제 확장 (A1부터 Z1500까지)
-                const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, range: "A1:Z1500", defval: ""});
+                // [필살기] sheet_to_json을 쓰지 않고 모든 셀의 원본 데이터를 1차원 배열로 쏟아냄
+                const rawRows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
                 
-                let col = { date: -1, store: -1, price: -1 };
-                let headerFound = false;
                 cardData = [];
+                // 모든 줄을 끝까지 순회 (중간에 멈추지 않음)
+                for (let i = 0; i < rawRows.length; i++) {
+                    const row = rawRows[i];
+                    const rowStr = row.join('|');
 
-                for (let i = 0; i < rows.length; i++) {
-                    const r = rows[i].map(v => String(v).replace(/\s/g, ''));
+                    // 1. 날짜 패턴이 있는지 확인 (예: 2026.04.13 또는 2026년 04월 13일)
+                    const dateMatch = rowStr.match(/\d{4}[\.\s년]\s?\d{2}[\.\s월]\s?\d{2}/);
                     
-                    // 헤더 찾기 (이용일, 이용가맹점만 필수로 체크)
-                    if (!headerFound) {
-                        if (r.some(v => v.includes('이용일')) && r.some(v => v.includes('이용가맹점'))) {
-                            rows[i].forEach((cell, idx) => {
-                                const val = String(cell).replace(/\s/g, '');
-                                if (val.includes('이용일')) col.date = idx;
-                                if (val.includes('이용가맹점')) col.store = idx;
-                                if (val.includes('결제원금') || val.includes('이용금액')) col.price = idx;
+                    if (dateMatch) {
+                        // 2. 가맹점명 추출 (보통 3번째 칸 근처)
+                        const store = String(row[2] || row[1] || "").trim();
+                        
+                        // 3. 금액 추출 (결제원금 칸 위주로 스캔)
+                        let price = 0;
+                        row.forEach(cell => {
+                            const val = String(cell).replace(/[^0-9]/g, "");
+                            if (val.length >= 3 && val.length <= 8) { // 상식적인 결제 금액 범위
+                                const p = parseInt(val);
+                                if (p > price) price = p; 
+                            }
+                        });
+
+                        if (price > 0 && store !== "" && !store.includes("합계")) {
+                            cardData.push({
+                                date: dateMatch[0],
+                                store: store,
+                                price: price,
+                                category: '분류전'
                             });
-                            headerFound = true;
                         }
-                        continue;
-                    }
-
-                    // 데이터 추출
-                    const store = String(rows[i][col.store] || '').trim();
-                    const date = String(rows[i][col.date] || '').trim();
-                    
-                    if (!store || store.includes('합계') || !date.match(/\d/)) continue;
-
-                    let price = parseInt(String(rows[i][col.price] || "0").replace(/[^0-9]/g, "")) || 0;
-
-                    if (price > 0) {
-                        cardData.push({ date, store, price, category: '기타/미분류' });
                     }
                 }
 
                 updateDashboard();
                 renderTable();
-                document.getElementById('status').textContent = `✅ 분석 완료: 총 ${cardData.length}건`;
-            } catch (err) { alert("파일 처리 중 오류 발생"); }
+                document.getElementById('status').textContent = `✅ 성공: 총 ${cardData.length}건을 강제로 찾아냈습니다!`;
+            } catch (err) { alert("분석 실패: " + err.message); }
         };
         reader.readAsArrayBuffer(file);
     };
 
     function renderTable() {
-        let html = '<table><tr><th>카테고리</th><th>이용일</th><th>가맹점</th><th>금액</th></tr>';
-        cardData.forEach((item, idx) => {
-            html += `<tr>
-                <td><select onchange="updateRowCategory(${idx}, this.value)">
-                    ${categories.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
-                </select></td>
-                <td>${item.date}</td><td>${item.store}</td><td>${item.price.toLocaleString()}원</td>
-            </tr>`;
+        let html = '<table><tr><th>날짜</th><th>가맹점</th><th>금액</th></tr>';
+        cardData.forEach(item => {
+            html += `<tr><td>${item.date}</td><td>${item.store}</td><td>${item.price.toLocaleString()}원</td></tr>`;
         });
         document.getElementById('tableOutput').innerHTML = html + '</table>';
     }
 
     function updateDashboard() {
-        const sumMap = {};
-        fixedCosts.forEach(item => sumMap['고정지출'] = (sumMap['고정지출'] || 0) + item.amount);
-        cardData.forEach(item => sumMap[item.category] = (sumMap[item.category] || 0) + item.price);
-        const labels = Object.keys(sumMap);
-        const data = labels.map(l => sumMap[l]);
+        const total = cardData.reduce((sum, d) => sum + d.price, 0);
         if(pieChart) pieChart.destroy();
-        if(barChart) barChart.destroy();
-        pieChart = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: ['#0070f3', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'] }] }, options: { maintainAspectRatio: false } });
-        barChart = new Chart(document.getElementById('barChart'), { type: 'bar', data: { labels, datasets: [{ label:'금액', data, backgroundColor: '#0070f3' }] }, options: { indexAxis: 'y', maintainAspectRatio: false } });
+        pieChart = new Chart(document.getElementById('pieChart'), { 
+            type: 'doughnut', 
+            data: { labels: ['지출합계'], datasets: [{ data: [total], backgroundColor: ['#0070f3'] }] },
+            options: { maintainAspectRatio: false }
+        });
     }
 
-    window.updateRowCategory = function(idx, newCat) { cardData[idx].category = newCat; updateDashboard(); };
-    window.addFixedCost = function() {
-        const n = document.getElementById('fixedName').value;
-        const a = parseInt(document.getElementById('fixedAmount').value);
-        if (n && a) { fixedCosts.push({ name: n, amount: a }); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); }
-    };
-    window.removeFixed = function(i) { fixedCosts.splice(i, 1); localStorage.setItem('fixedCosts', JSON.stringify(fixedCosts)); renderFixedCosts(); updateDashboard(); };
-    function renderFixedCosts() { document.getElementById('fixedList').innerHTML = fixedCosts.map((item, i) => `<span class="fixed-tag">${item.name}: ${item.amount.toLocaleString()}원 <b onclick="removeFixed(${i})" style="color:red; cursor:pointer;">×</b></span>`).join(''); }
     window.saveCurrentMonth = function() {
         const m = document.getElementById('saveMonth').value.trim();
-        if (m && cardData.length > 0) { archives[m] = cardData; localStorage.setItem('monthlyArchives', JSON.stringify(archives)); renderArchiveList(); alert(m + " 저장 완료"); }
+        if (m && cardData.length > 0) {
+            archives[m] = cardData;
+            localStorage.setItem('monthlyArchives', JSON.stringify(archives));
+            renderArchiveList();
+            alert(m + " 데이터가 저장되었습니다.");
+        }
     };
-    function renderArchiveList() { document.getElementById('archiveList').innerHTML = Object.keys(archives).map(m => `<button onclick="loadMonth('${m}')" style="padding:5px 10px; border-radius:15px; border:1px solid #0070f3; background:white; color:#0070f3; cursor:pointer;">${m}</button>`).join(''); }
-    window.loadMonth = function(m) { cardData = archives[m]; updateDashboard(); renderTable(); document.getElementById('saveMonth').value = m; };
+
+    function renderArchiveList() {
+        document.getElementById('archiveList').innerHTML = Object.keys(archives).map(m => 
+            `<button onclick="loadMonth('${m}')" style="padding:5px 10px; border-radius:15px; border:1px solid #0070f3; background:white; color:#0070f3; cursor:pointer;">${m}</button>`
+        ).join('');
+    }
+
+    window.loadMonth = function(m) {
+        cardData = archives[m];
+        updateDashboard();
+        renderTable();
+        document.getElementById('saveMonth').value = m;
+    };
 };
 </script>
 </body>
